@@ -41,10 +41,16 @@ export default function Celebrations() {
     setMessage('');
     setError('');
     try {
-      const result = await api('/celebrations/run', { method: 'POST' });
-      setMessage(
-        `Checked ${result.results.checked} · sent ${result.results.sent} · skipped ${result.results.skipped} · failed ${result.results.failed}`
-      );
+      const r = result.results || {};
+      const parts = [];
+      if (r.sent > 0) parts.push(`${r.sent} announcement${r.sent === 1 ? '' : 's'} sent`);
+      if (r.skipped > 0) parts.push(`${r.skipped} already sent`);
+      if (r.failed > 0) parts.push(`${r.failed} failed`);
+      if (!parts.length) {
+        parts.push(r.checked ? 'Nothing new to announce' : 'No celebrations today');
+      }
+      setMessage(parts.join(' · '));
+      if (r.failed > 0) setError('Some announcements could not be sent.');
       await load();
     } catch (err) {
       setError(err.message);

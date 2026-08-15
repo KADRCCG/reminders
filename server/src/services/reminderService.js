@@ -120,15 +120,13 @@ export async function processReminders(referenceDate = new Date()) {
 
       results.sent += 1;
       if (delivery.channel === 'console') {
-        results.reasons.push(
-          `${person}: logged to server console (SMSGate not configured)`
-        );
+        results.reasons.push(`${person}: saved to server log (SMS not configured yet)`);
       } else if (delivery.state === 'Pending' || delivery.state === 'Processed') {
-        results.reasons.push(
-          `${person}: queued on SMSGate (${delivery.state}, id ${delivery.sid}) — open SMSGate on the phone, confirm Cloud is Online, then check the message status there`
-        );
+        results.reasons.push(`${person}: reminder handed to your phone to send`);
+      } else if (delivery.state === 'Delivered') {
+        results.reasons.push(`${person}: delivered`);
       } else {
-        results.reasons.push(`${person}: SMS ${delivery.state || 'sent'} (id ${delivery.sid})`);
+        results.reasons.push(`${person}: sent`);
       }
     } catch (err) {
       await ReminderLog.create({

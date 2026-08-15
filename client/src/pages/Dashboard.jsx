@@ -40,11 +40,20 @@ export default function Dashboard() {
     try {
       const result = await api('/reminders/run', { method: 'POST' });
       const r = result.results || {};
-      const summary = `Checked ${r.checked} · sent ${r.sent} · skipped ${r.skipped} · failed ${r.failed}`;
-      const reasons = (r.reasons || []).slice(0, 5).join(' · ');
-      setMessage(reasons ? `${summary}. ${reasons}` : summary);
+      const parts = [];
+      if (r.sent > 0) parts.push(`${r.sent} reminder${r.sent === 1 ? '' : 's'} sent`);
+      if (r.skipped > 0) parts.push(`${r.skipped} not due yet`);
+      if (r.failed > 0) parts.push(`${r.failed} failed`);
+      if (!parts.length) {
+        parts.push(r.checked ? 'Nothing to send right now' : 'No upcoming assignments to check');
+      }
+      setMessage(parts.join(' · '));
+
       if (r.failed > 0) {
-        setError((r.reasons || []).filter((line) => /failed|SMSGate|Meta|phone|invalid/i.test(line)).join(' · ') || 'Some SMS sends failed. Check server logs and SMSGate settings.');
+        const failNotes = (r.reasons || [])
+          .filter((line) => /failed|phone|invalid|not configured/i.test(line))
+          .slice(0, 3);
+        setError(failNotes.join(' · ') || 'Some reminders could not be sent.');
       }
       await load();
     } catch (err) {
