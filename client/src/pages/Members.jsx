@@ -270,7 +270,7 @@ export default function Members() {
             <input
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="0803... or +234..."
+              placeholder="087... or +353 87..."
               required
             />
           </label>
