@@ -22,17 +22,24 @@ const port = process.env.PORT || 5000;
 
 const allowedOrigins = String(process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
   .filter(Boolean);
+
+function originAllowed(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) return true;
+  // Allow Vercel production + preview URLs when any configured CLIENT_URL is on vercel.app
+  const allowVercel =
+    process.env.ALLOW_VERCEL_PREVIEWS === 'true' ||
+    allowedOrigins.some((o) => o.includes('vercel.app'));
+  if (allowVercel && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return true;
+  return false;
+}
 
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow non-browser / same-origin tools with no Origin header
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+      if (originAllowed(origin)) return callback(null, true);
       return callback(null, false);
     },
     credentials: true,
