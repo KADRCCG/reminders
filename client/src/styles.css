@@ -675,6 +675,23 @@ button.btn {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.schedule-find-bar {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.schedule-find-search input {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .schedule-find-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1100px) {
   .filter-bar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -955,4 +972,101 @@ button.btn {
   resize: vertical;
   font-family: inherit;
   line-height: 1.45;
+}
+
+.schedule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.schedule-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+  color: inherit;
+}
+
+.schedule-card:hover {
+  border-color: var(--green, #1b7a4e);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
+.channel-dropdown-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.channel-dropdown-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.channel-dropdown-trigger {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 0.8rem 0.85rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.channel-dropdown-trigger.open,
+.channel-dropdown-trigger:focus {
+  outline: 2px solid rgba(0, 166, 81, 0.28);
+  border-color: var(--rccg-green);
+}
+
+.channel-dropdown-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.channel-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.channel-dropdown-option:hover {
+  background: rgba(0, 166, 81, 0.06);
+}
+
+.channel-dropdown-option input {
+  width: auto;
+  min-height: auto;
+  padding: 0;
 }

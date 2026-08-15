@@ -19,8 +19,10 @@ router.get('/dashboard', async (_req, res) => {
       .limit(10)
       .populate('member', 'name email')
       .populate({
-        path: 'assignment',
-        populate: { path: 'department', select: 'name' },
+        path: 'scheduleEntry',
+        populate: [
+          { path: 'schedule', select: 'name', populate: { path: 'department', select: 'name' } },
+        ],
       }),
   ]);
 
@@ -42,8 +44,10 @@ router.get('/logs', async (_req, res) => {
     .limit(50)
     .populate('member', 'name email')
     .populate({
-      path: 'assignment',
-      populate: { path: 'department', select: 'name' },
+      path: 'scheduleEntry',
+      populate: [
+        { path: 'schedule', select: 'name', populate: { path: 'department', select: 'name' } },
+      ],
     });
   res.json(logs);
 });

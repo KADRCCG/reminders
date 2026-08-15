@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 
 function formatDate(value) {
@@ -13,44 +14,74 @@ function typeLabel(type) {
   return type === 'birthday' ? 'Birthday' : 'Anniversary';
 }
 
+function formatChannelsLabel(channels = []) {
+  const hasSms = channels.includes('sms');
+  const hasWhatsApp = channels.includes('whatsapp');
+  if (hasSms && hasWhatsApp) return 'SMS and WhatsApp';
+  if (hasWhatsApp) return 'WhatsApp';
+  if (hasSms) return 'SMS';
+  return 'SMS and WhatsApp';
+}
+
+function formatLogStatus(status) {
+  if (status === 'sent') return 'Sent';
+  if (status === 'failed') return 'Failed';
+  return status;
+}
+
+function formatLogChannel(channel) {
+  if (channel === 'whatsapp') return 'WhatsApp';
+  if (channel === 'sms') return 'SMS';
+  if (channel === 'console') return 'Test mode';
+  return channel;
+}
+
 export default function Celebrations() {
   const [today, setToday] = useState(null);
   const [upcoming, setUpcoming] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [running, setRunning] = useState(false);
-
   async function load() {
-    const [todayData, upcomingData, logData] = await Promise.all([
+    const [todayData, upcomingData, logData, settingsData] = await Promise.all([
       api('/celebrations/today'),
       api('/celebrations/upcoming?days=21'),
       api('/celebrations/logs'),
+      api('/celebrations/settings'),
     ]);
     setToday(todayData);
     setUpcoming(upcomingData);
     setLogs(logData);
+    setSettings(settingsData);
   }
 
   useEffect(() => {
     load().catch((err) => setError(err.message));
   }, []);
 
+  const deliveryLabel = useMemo(
+    () => formatChannelsLabel(settings?.channels),
+    [settings?.channels]
+  );
+
   async function runAnnouncements() {
     setRunning(true);
     setMessage('');
     setError('');
     try {
+      const result = await api('/celebrations/run', { method: 'POST' });
       const r = result.results || {};
       const parts = [];
       if (r.sent > 0) parts.push(`${r.sent} announcement${r.sent === 1 ? '' : 's'} sent`);
-      if (r.skipped > 0) parts.push(`${r.skipped} already sent`);
-      if (r.failed > 0) parts.push(`${r.failed} failed`);
+      if (r.skipped > 0) parts.push(`${r.skipped} already sent today`);
+      if (r.failed > 0) parts.push(`${r.failed} could not be sent`);
       if (!parts.length) {
         parts.push(r.checked ? 'Nothing new to announce' : 'No celebrations today');
       }
       setMessage(parts.join(' · '));
-      if (r.failed > 0) setError('Some announcements could not be sent.');
+      if (r.failed > 0) setError('Some announcements could not be sent. Check phone numbers and messaging setup.');
       await load();
     } catch (err) {
       setError(err.message);
@@ -70,16 +101,51 @@ export default function Celebrations() {
         <div>
           <h1>Celebrations</h1>
           <p className="muted">
-            Birthdays and anniversaries are sent on WhatsApp each morning.
+            Send birthday and anniversary messages automatically each morning, or run them manually below.
           </p>
         </div>
         <button type="button" className="btn primary" onClick={runAnnouncements} disabled={running}>
-          {running ? 'Announcing…' : 'Announce today now'}
+          {running ? 'Sending…' : 'Send today\'s messages'}
         </button>
       </header>
 
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
+
+      <section className="panel stack">
+        <h2>How it works</h2>
+        <p className="muted">
+          Celebrants receive a personal message on <strong>{deliveryLabel}</strong> when it is their
+          birthday or wedding anniversary.
+        </p>
+        <p className="muted">
+          Message wording comes from{' '}
+          <Link to="/messages" className="linkish">
+            Message Hub
+          </Link>{' '}
+          (Birthday and Anniversary templates).
+        </p>
+        <p className="muted">
+          {settings?.adminContactsConfigured ? (
+            <>
+              A short announcement digest is also sent to {settings.adminContactCount} admin contact
+              {settings.adminContactCount === 1 ? '' : 's'}. Manage contacts in{' '}
+              <Link to="/settings" className="linkish">
+                Settings
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              Add admin contacts in{' '}
+              <Link to="/settings" className="linkish">
+                Settings
+              </Link>{' '}
+              to receive a daily announcement digest.
+            </>
+          )}
+        </p>
+      </section>
 
       <section className="panel-grid">
         <div className="panel">
@@ -94,12 +160,14 @@ export default function Celebrations() {
                 </span>
               </li>
             ))}
-            {!todayItems.length && <li className="muted">No birthdays or anniversaries today.</li>}
+            {!todayItems.length && (
+              <li className="muted">No birthdays or anniversaries today.</li>
+            )}
           </ul>
         </div>
 
         <div className="panel">
-          <h2>Recent announcements</h2>
+          <h2>Recent messages</h2>
           <ul className="log-list">
             {logs.map((log) => (
               <li key={log._id}>
@@ -107,11 +175,12 @@ export default function Celebrations() {
                   {typeLabel(log.type)} · {log.members?.map((m) => m.name).join(' & ')}
                 </strong>
                 <span>
-                  {log.status} via {log.channel} · {formatDate(log.createdAt)}
+                  {formatLogStatus(log.status)} · {formatLogChannel(log.channel)} ·{' '}
+                  {formatDate(log.createdAt)}
                 </span>
               </li>
             ))}
-            {!logs.length && <li className="muted">No celebration announcements yet.</li>}
+            {!logs.length && <li className="muted">No celebration messages sent yet.</li>}
           </ul>
         </div>
       </section>

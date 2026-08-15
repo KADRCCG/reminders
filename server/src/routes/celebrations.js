@@ -2,6 +2,7 @@ import express from 'express';
 import CelebrationLog from '../models/CelebrationLog.js';
 import { protect } from '../middleware/auth.js';
 import {
+  getCelebrationSettings,
   getTodaysCelebrations,
   getUpcomingCelebrations,
   processCelebrations,
@@ -9,6 +10,10 @@ import {
 
 const router = express.Router();
 router.use(protect);
+
+router.get('/settings', async (_req, res) => {
+  res.json(await getCelebrationSettings());
+});
 
 router.get('/today', async (_req, res) => {
   const data = await getTodaysCelebrations();

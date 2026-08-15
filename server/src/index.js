@@ -7,15 +7,18 @@ import authRoutes from './routes/auth.js';
 import departmentRoutes from './routes/departments.js';
 import memberRoutes from './routes/members.js';
 import assignmentRoutes from './routes/assignments.js';
+import scheduleRoutes from './routes/schedules.js';
 import assignmentLabelRoutes from './routes/assignmentLabels.js';
 import reminderRoutes from './routes/reminders.js';
 import celebrationRoutes from './routes/celebrations.js';
+import settingsRoutes from './routes/settings.js';
 import messageTemplateRoutes from './routes/messageTemplates.js';
 import { processReminders } from './services/reminderService.js';
 import { processCelebrations } from './services/celebrationService.js';
 import { backfillAssignmentLabels } from './utils/assignmentLabels.js';
 import { ensureAdminFromEnv } from './utils/ensureAdmin.js';
-import { ensureMessageTemplates } from './utils/messageTemplates.js';
+import { ensureMessageTemplates, migrateUnifiedTemplates, syncSystemTemplateDescriptions } from './utils/messageTemplates.js';
+import { migrateAssignmentsToSchedules } from './utils/migrateSchedules.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -64,9 +67,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/members', memberRoutes);
 app.use('/api/assignments', assignmentRoutes);
+app.use('/api/schedules', scheduleRoutes);
 app.use('/api/assignment-labels', assignmentLabelRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/celebrations', celebrationRoutes);
+app.use('/api/settings', settingsRoutes);
 app.use('/api/message-templates', messageTemplateRoutes);
 
 app.use((err, _req, res, _next) => {
@@ -92,6 +97,9 @@ async function start() {
   await connectDB(mongoUri);
   await ensureAdminFromEnv();
   await ensureMessageTemplates();
+  await syncSystemTemplateDescriptions();
+  await migrateUnifiedTemplates();
+  await migrateAssignmentsToSchedules();
   await backfillAssignmentLabels();
 
   if (cron.validate(cronExpr)) {

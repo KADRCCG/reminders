@@ -3,7 +3,8 @@ import { connectDB } from '../config/db.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
 import Member from '../models/Member.js';
-import Assignment from '../models/Assignment.js';
+import Schedule from '../models/Schedule.js';
+import ScheduleEntry from '../models/ScheduleEntry.js';
 import AssignmentLabel from '../models/AssignmentLabel.js';
 import ReminderLog from '../models/ReminderLog.js';
 import CelebrationLog from '../models/CelebrationLog.js';
@@ -26,7 +27,8 @@ async function seed() {
     User.deleteMany({}),
     Department.deleteMany({}),
     Member.deleteMany({}),
-    Assignment.deleteMany({}),
+    ScheduleEntry.deleteMany({}),
+    Schedule.deleteMany({}),
     AssignmentLabel.deleteMany({}),
     ReminderLog.deleteMany({}),
     CelebrationLog.deleteMany({}),
@@ -61,7 +63,6 @@ async function seed() {
     email: 'ada@example.com',
     phone: '08030000001',
     department: sundaySchool._id,
-    // Demo: month/day only — year optional
     birthdayMonth: today.getMonth() + 1,
     birthdayDay: today.getDate(),
     birthdayYear: null,
@@ -100,7 +101,7 @@ async function seed() {
   grace.spouse = samuel._id;
   grace.anniversaryMonth = today.getMonth() + 1;
   grace.anniversaryDay = today.getDate();
-  grace.anniversaryYear = null; // year optional
+  grace.anniversaryYear = null;
   await syncSpouseLink(grace, null);
 
   const nextSunday = new Date();
@@ -118,29 +119,50 @@ async function seed() {
     ensureAssignmentLabel('Serve'),
   ]);
 
-  await Assignment.insertMany([
+  const defaultTemplate = await MessageTemplate.findOne({ key: 'schedule_reminder' });
+
+  const ssSchedule = await Schedule.create({
+    name: 'Q3 Sunday School',
+    department: sundaySchool._id,
+    messageTemplate: defaultTemplate._id,
+    notes: 'Quarterly teacher roster',
+  });
+
+  const usherSchedule = await Schedule.create({
+    name: 'August Ushers',
+    department: ushers._id,
+    messageTemplate: defaultTemplate._id,
+  });
+
+  const choirSchedule = await Schedule.create({
+    name: 'August Choir',
+    department: choir._id,
+    messageTemplate: defaultTemplate._id,
+  });
+
+  await ScheduleEntry.insertMany([
     {
-      department: sundaySchool._id,
+      schedule: ssSchedule._id,
       member: ada._id,
       date: inTwoDays,
       roleLabel: 'Teach',
       notes: 'Lesson: The Good Samaritan',
     },
     {
-      department: sundaySchool._id,
+      schedule: ssSchedule._id,
       member: chidi._id,
       date: nextSunday,
       roleLabel: 'Teach',
       notes: 'Lesson: Faith and Works',
     },
     {
-      department: ushers._id,
+      schedule: usherSchedule._id,
       member: grace._id,
       date: nextSunday,
       roleLabel: 'Lead Usher',
     },
     {
-      department: choir._id,
+      schedule: choirSchedule._id,
       member: samuel._id,
       date: nextSunday,
       roleLabel: 'Lead Vocal',

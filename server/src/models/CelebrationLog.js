@@ -16,7 +16,7 @@ const celebrationLogSchema = new mongoose.Schema(
     ],
     year: { type: Number, required: true },
     occurrenceDate: { type: Date, required: true },
-    channel: { type: String, enum: ['whatsapp', 'console'], default: 'whatsapp' },
+    channel: { type: String, enum: ['sms', 'whatsapp', 'console'], default: 'whatsapp' },
     status: { type: String, enum: ['sent', 'failed'], required: true },
     message: { type: String, default: '' },
     error: { type: String, default: '' },

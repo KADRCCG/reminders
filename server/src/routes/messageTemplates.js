@@ -16,6 +16,21 @@ router.get('/', async (_req, res) => {
   res.json(templates);
 });
 
+router.post('/', async (req, res) => {
+  try {
+    const { createCustomTemplate: createTpl } = await import('../utils/messageTemplates.js');
+    const tpl = await createTpl({
+      name: req.body.name,
+      body: req.body.body,
+      description: req.body.description,
+      placeholders: req.body.placeholders,
+    });
+    res.status(201).json(tpl);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
 router.get('/:key', async (req, res) => {
   await ensureMessageTemplates();
   const template = await MessageTemplate.findOne({ key: req.params.key });
@@ -28,6 +43,9 @@ router.put('/:key', async (req, res) => {
     await ensureMessageTemplates();
     const template = await MessageTemplate.findOne({ key: req.params.key });
     if (!template) return res.status(404).json({ message: 'Template not found' });
+    if (template.kind === 'system' && req.body.name != null) {
+      // allow body edits only for system via existing flow; name locked optional
+    }
 
     const body = String(req.body.body || '').trim();
     if (!body) return res.status(400).json({ message: 'Message body is required' });
@@ -45,13 +63,13 @@ router.put('/:key', async (req, res) => {
 router.post('/:key/reset', async (req, res) => {
   await ensureMessageTemplates();
   const defaults = DEFAULT_TEMPLATES.find((t) => t.key === req.params.key);
-  if (!defaults) return res.status(404).json({ message: 'Template not found' });
+  if (!defaults) return res.status(404).json({ message: 'Template not found or not a system template' });
 
   const template = await MessageTemplate.findOneAndUpdate(
     { key: req.params.key },
     {
       name: defaults.name,
-      channel: defaults.channel,
+      kind: defaults.kind || 'system',
       description: defaults.description,
       placeholders: defaults.placeholders,
       body: defaults.body,
@@ -69,6 +87,7 @@ router.post('/:key/preview', async (req, res) => {
   const sample = {
     name: 'Ada Okonkwo',
     names: 'Grace & Samuel',
+    schedule: 'Q3 Sunday School',
     department: 'Sunday School',
     date: 'Sunday, August 16, 2026',
     date_label: '16 August',

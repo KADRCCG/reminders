@@ -140,13 +140,17 @@ export default function Dashboard() {
                   <span className={`pill ${item.reminderSentAt ? 'ok' : 'warn'}`}>
                     {item.reminderSentAt
                       ? 'Sent'
-                      : `${item.department?.reminderDaysBefore ?? 2}d before`}
+                      : `${item.schedule?.department?.reminderDaysBefore ?? 2}d before`}
                   </span>
                 </div>
                 <dl className="meta-grid">
                   <div>
+                    <dt>Schedule</dt>
+                    <dd>{item.schedule?.name || '—'}</dd>
+                  </div>
+                  <div>
                     <dt>Department</dt>
-                    <dd>{item.department?.name || '—'}</dd>
+                    <dd>{item.schedule?.department?.name || '—'}</dd>
                   </div>
                   <div>
                     <dt>Assignment</dt>
@@ -156,7 +160,7 @@ export default function Dashboard() {
               </article>
             ))}
             {!data?.upcoming?.length && (
-              <p className="empty-state">No upcoming assignments yet. Upload a schedule to begin.</p>
+              <p className="empty-state">No upcoming entries yet. Create a schedule to begin.</p>
             )}
           </div>
 
@@ -165,6 +169,7 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Schedule</th>
                   <th>Department</th>
                   <th>Person</th>
                   <th>Assignment</th>
@@ -175,22 +180,23 @@ export default function Dashboard() {
                 {(data?.upcoming || []).map((item) => (
                   <tr key={item._id}>
                     <td>{formatDate(item.date)}</td>
-                    <td>{item.department?.name}</td>
+                    <td>{item.schedule?.name}</td>
+                    <td>{item.schedule?.department?.name}</td>
                     <td>{item.member?.name}</td>
                     <td>{item.roleLabel}</td>
                     <td>
                       <span className={`pill ${item.reminderSentAt ? 'ok' : 'warn'}`}>
                         {item.reminderSentAt
                           ? 'Sent'
-                          : `${item.department?.reminderDaysBefore ?? 2}d before`}
+                          : `${item.schedule?.department?.reminderDaysBefore ?? 2}d before`}
                       </span>
                     </td>
                   </tr>
                 ))}
                 {!data?.upcoming?.length && (
                   <tr>
-                    <td colSpan={5} className="muted">
-                      No upcoming assignments yet. Upload a schedule to begin.
+                    <td colSpan={6} className="muted">
+                      No upcoming entries yet. Create a schedule to begin.
                     </td>
                   </tr>
                 )}
@@ -206,7 +212,7 @@ export default function Dashboard() {
               <li key={log._id}>
                 <strong>{log.member?.name}</strong>
                 <span>
-                  {log.assignment?.department?.name || 'Department'} · {log.status} via {log.channel}
+                  {log.scheduleEntry?.schedule?.name || log.scheduleEntry?.schedule?.department?.name || 'Schedule'} · {log.status} via {log.channel}
                 </span>
               </li>
             ))}

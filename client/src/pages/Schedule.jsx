@@ -1,23 +1,136 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { templateDisplayTitle } from '../utils/templateDisplay';
 
 const NEW_ASSIGNMENT = '__new__';
 
-const empty = {
+function isScheduleTemplate(tpl) {
+  return (
+    tpl?.placeholders?.includes('schedule') ||
+    String(tpl?.key || '').startsWith('schedule_') ||
+    tpl?.kind === 'custom'
+  );
+}
+
+function defaultScheduleTemplate(templates) {
+  return (
+    templates.find((t) => t.key === 'schedule_reminder') ||
+    templates.find((t) => isScheduleTemplate(t)) ||
+    null
+  );
+}
+
+function formatChannelsLabel(channels) {
+  if (!channels?.length) return 'SMS';
+  const hasSms = channels.includes('sms');
+  const hasWhatsApp = channels.includes('whatsapp');
+  if (hasSms && hasWhatsApp) return 'SMS & WhatsApp';
+  if (hasWhatsApp) return 'WhatsApp';
+  return 'SMS';
+}
+
+function ChannelDropdown({ sendSms, sendWhatsApp, onChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function handleClickOutside(event) {
+      if (!wrapRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const channels = [];
+  if (sendSms) channels.push('sms');
+  if (sendWhatsApp) channels.push('whatsapp');
+
+  function updateChannel(field, checked) {
+    onChange({
+      sendSms: field === 'sendSms' ? checked : sendSms,
+      sendWhatsApp: field === 'sendWhatsApp' ? checked : sendWhatsApp,
+    });
+  }
+
+  return (
+    <div className="channel-dropdown-wrap" ref={wrapRef}>
+      <span className="channel-dropdown-label">Delivery channel</span>
+      <button
+        type="button"
+        className={`channel-dropdown-trigger${open ? ' open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {channels.length ? formatChannelsLabel(channels) : 'Select channels'}
+      </button>
+      {open && (
+        <div className="channel-dropdown-menu" role="listbox">
+          <label className="channel-dropdown-option">
+            <input
+              type="checkbox"
+              checked={sendSms}
+              onChange={(e) => updateChannel('sendSms', e.target.checked)}
+            />
+            SMS
+          </label>
+          <label className="channel-dropdown-option">
+            <input
+              type="checkbox"
+              checked={sendWhatsApp}
+              onChange={(e) => updateChannel('sendWhatsApp', e.target.checked)}
+            />
+            WhatsApp
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function scheduleChannels(schedule) {
+  if (schedule?.channels?.length) return schedule.channels;
+  return schedule?.channel === 'whatsapp' ? ['whatsapp'] : ['sms'];
+}
+
+function scheduleFormFromData(schedule, templates) {
+  const channels = scheduleChannels(schedule);
+  const mt = schedule?.messageTemplate;
+
+  return {
+    name: schedule.name,
+    department: schedule.department?._id || schedule.department,
+    sendSms: channels.includes('sms'),
+    sendWhatsApp: channels.includes('whatsapp'),
+    messageTemplateId:
+      mt?._id || mt || defaultScheduleTemplate(templates)?._id || '',
+    notes: schedule.notes || '',
+  };
+}
+
+const emptyCreate = {
+  name: '',
   department: '',
+  sendSms: true,
+  sendWhatsApp: false,
+  messageTemplateId: '',
+  notes: '',
+  addFirstPerson: false,
+  member: '',
+  date: '',
+  roleLabel: '',
+  customAssignment: '',
+  entryNotes: '',
+};
+
+const emptyEntry = {
   member: '',
   date: '',
   roleLabel: '',
   customAssignment: '',
   notes: '',
-};
-
-const emptyFilters = {
-  department: '',
-  member: '',
-  roleLabel: '',
-  from: '',
-  reminder: 'all',
 };
 
 function formatDate(value) {
@@ -27,13 +140,6 @@ function formatDate(value) {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function toDayValue(value) {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
 }
 
 function toDateInputValue(value) {
@@ -46,162 +152,236 @@ function toDateInputValue(value) {
 }
 
 export default function Schedule() {
-  const [assignments, setAssignments] = useState([]);
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const [schedules, setSchedules] = useState([]);
+  const [detail, setDetail] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [members, setMembers] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [assignmentLabels, setAssignmentLabels] = useState([]);
-  const [form, setForm] = useState(empty);
-  const [editingId, setEditingId] = useState(null);
-  const [filters, setFilters] = useState(emptyFilters);
+  const [createForm, setCreateForm] = useState(emptyCreate);
+  const [entryForm, setEntryForm] = useState(emptyEntry);
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [settingsForm, setSettingsForm] = useState(null);
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  const [scheduleDepartment, setScheduleDepartment] = useState('');
 
-  async function load() {
-    const [assignmentData, deptData, memberData, labelData] = await Promise.all([
-      api('/assignments'),
+  const scheduleTemplates = useMemo(
+    () => templates.filter((t) => isScheduleTemplate(t)),
+    [templates]
+  );
+
+  function buildChannelsPayload(form) {
+    const channels = [];
+    if (form.sendSms) channels.push('sms');
+    if (form.sendWhatsApp) channels.push('whatsapp');
+    if (!channels.length) {
+      throw new Error('Select at least one delivery channel (SMS or WhatsApp)');
+    }
+    return channels;
+  }
+
+  const visibleSchedules = useMemo(() => {
+    const query = scheduleSearch.trim().toLowerCase();
+
+    return schedules.filter((schedule) => {
+      const deptId = schedule.department?._id || schedule.department;
+      if (scheduleDepartment && deptId !== scheduleDepartment) return false;
+      if (!query) return true;
+
+      const haystack = [schedule.name, schedule.department?.name, schedule.notes]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [schedules, scheduleSearch, scheduleDepartment]);
+
+  async function loadList() {
+    const [scheduleData, deptData, memberData, templateData, labelData] = await Promise.all([
+      api('/schedules'),
       api('/departments'),
       api('/members'),
+      api('/message-templates'),
       api('/assignment-labels'),
     ]);
-    setAssignments(assignmentData);
+    setSchedules(scheduleData);
     setDepartments(deptData);
     setMembers(memberData);
+    setTemplates(templateData);
     setAssignmentLabels(labelData);
-    setForm((prev) => ({
-      ...prev,
-      department: prev.department || deptData[0]?._id || '',
-      member: prev.member || memberData[0]?._id || '',
-      roleLabel:
-        prev.roleLabel ||
-        (labelData.some((l) => l.name === 'Serve') ? 'Serve' : labelData[0]?.name || NEW_ASSIGNMENT),
-    }));
+    setCreateForm((prev) => {
+      const defaultTpl = defaultScheduleTemplate(templateData);
+      return {
+        ...prev,
+        department: prev.department || deptData[0]?._id || '',
+        messageTemplateId: prev.messageTemplateId || defaultTpl?._id || '',
+      };
+    });
+  }
+
+  async function loadDetail(scheduleId) {
+    const [scheduleData, memberData, deptData, templateData, labelData] = await Promise.all([
+      api(`/schedules/${scheduleId}`),
+      api('/members'),
+      api('/departments'),
+      api('/message-templates'),
+      api('/assignment-labels'),
+    ]);
+    setDetail(scheduleData);
+    setMembers(memberData);
+    setDepartments(deptData);
+    setTemplates(templateData);
+    setAssignmentLabels(labelData);
+    setSettingsForm(scheduleFormFromData(scheduleData, templateData));
   }
 
   useEffect(() => {
-    load().catch((err) => setError(err.message));
-  }, []);
+    setError('');
+    if (id) {
+      loadDetail(id).catch((err) => setError(err.message));
+    } else {
+      setDetail(null);
+      loadList().catch((err) => setError(err.message));
+    }
+  }, [id]);
 
-  const filteredMembers = members.filter((m) => {
-    if (!form.department) return true;
-    if (!m.department) return true;
-    return m.department?._id === form.department || m.department === form.department;
-  });
-
-  const filterMembers = useMemo(() => {
-    if (!filters.department) return members;
+  const deptMembers = useMemo(() => {
+    const deptId = detail?.department?._id || detail?.department || createForm.department;
+    if (!deptId) return members;
     return members.filter((m) => {
       if (!m.department) return true;
-      return m.department?._id === filters.department || m.department === filters.department;
+      return m.department?._id === deptId || m.department === deptId;
     });
-  }, [members, filters.department]);
+  }, [members, detail, createForm.department]);
 
-  const filteredAssignments = useMemo(() => {
-    return assignments.filter((a) => {
-      if (filters.department) {
-        const deptId = a.department?._id || a.department;
-        if (deptId !== filters.department) return false;
-      }
-
-      if (filters.member) {
-        const memberId = a.member?._id || a.member;
-        if (memberId !== filters.member) return false;
-      }
-
-      if (filters.roleLabel) {
-        if ((a.roleLabel || '').toLowerCase() !== filters.roleLabel.toLowerCase()) {
-          return false;
-        }
-      }
-
-      const day = toDayValue(a.date);
-      if (filters.from) {
-        const from = toDayValue(filters.from);
-        if (day == null || from == null || day < from) return false;
-      }
-
-      if (filters.reminder === 'sent' && !a.reminderSentAt) return false;
-      if (filters.reminder === 'pending' && a.reminderSentAt) return false;
-
-      return true;
-    });
-  }, [assignments, filters]);
-
-  const filtersActive =
-    Boolean(filters.department) ||
-    Boolean(filters.member) ||
-    Boolean(filters.roleLabel) ||
-    Boolean(filters.from) ||
-    filters.reminder !== 'all';
-
-  function resetForm(preferredRole = '') {
-    setEditingId(null);
-    setForm({
-      ...empty,
-      department: departments[0]?._id || '',
-      member: '',
-      roleLabel:
-        preferredRole ||
-        (assignmentLabels.some((l) => l.name === 'Serve')
-          ? 'Serve'
-          : assignmentLabels[0]?.name || ''),
-    });
-  }
-
-  function startEdit(assignment) {
-    const roleLabel = assignment.roleLabel || '';
-    const knownLabel = assignmentLabels.find(
-      (l) => l.name.toLowerCase() === roleLabel.toLowerCase()
-    );
-    setEditingId(assignment._id);
-    setForm({
-      department: assignment.department?._id || assignment.department || '',
-      member: assignment.member?._id || assignment.member || '',
-      date: toDateInputValue(assignment.date),
-      roleLabel: knownLabel ? knownLabel.name : NEW_ASSIGNMENT,
-      customAssignment: knownLabel ? '' : roleLabel,
-      notes: assignment.notes || '',
-    });
-    setMessage('');
+  async function onCreateSchedule(e) {
+    e.preventDefault();
     setError('');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setMessage('');
+    try {
+      const channels = buildChannelsPayload(createForm);
+      const body = {
+        name: createForm.name,
+        department: createForm.department,
+        channels,
+        messageTemplateId: createForm.messageTemplateId,
+        notes: createForm.notes,
+      };
+
+      if (createForm.addFirstPerson && createForm.member && createForm.date) {
+        const roleLabel =
+          createForm.roleLabel === NEW_ASSIGNMENT
+            ? createForm.customAssignment.trim()
+            : createForm.roleLabel;
+        body.entries = [
+          {
+            member: createForm.member,
+            date: createForm.date,
+            roleLabel: roleLabel || 'Serve',
+            notes: createForm.entryNotes,
+          },
+        ];
+      }
+
+      const created = await api('/schedules', { method: 'POST', body });
+      setMessage('Schedule created.');
+      setCreateForm(emptyCreate);
+      navigate(`/schedule/${created._id}`);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
-  async function onManualSubmit(e) {
+  async function onSaveSettings(e) {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      const channels = buildChannelsPayload(settingsForm);
+      const body = {
+        name: settingsForm.name,
+        department: settingsForm.department,
+        channels,
+        messageTemplateId: settingsForm.messageTemplateId,
+        notes: settingsForm.notes,
+      };
+
+      await api(`/schedules/${id}`, {
+        method: 'PUT',
+        body,
+      });
+      setMessage('Schedule updated.');
+      await loadDetail(id);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function onAddEntry(e) {
     e.preventDefault();
     setError('');
     setMessage('');
     try {
       const roleLabel =
-        form.roleLabel === NEW_ASSIGNMENT
-          ? form.customAssignment.trim()
-          : form.roleLabel.trim();
+        entryForm.roleLabel === NEW_ASSIGNMENT
+          ? entryForm.customAssignment.trim()
+          : entryForm.roleLabel.trim();
 
-      if (!roleLabel) {
-        setError('Choose or enter an assignment');
-        return;
-      }
-
-      const body = {
-        department: form.department,
-        member: form.member,
-        date: form.date,
-        roleLabel,
-        notes: form.notes,
-      };
-
-      if (editingId) {
-        await api(`/assignments/${editingId}`, { method: 'PUT', body });
-        setMessage('Assignment updated.');
+      if (editingEntryId) {
+        await api(`/schedules/${id}/entries/${editingEntryId}`, {
+          method: 'PUT',
+          body: { ...entryForm, roleLabel },
+        });
+        setMessage('Entry updated.');
       } else {
-        await api('/assignments', { method: 'POST', body });
-        setMessage('Assignment added.');
+        await api(`/schedules/${id}/entries`, {
+          method: 'POST',
+          body: { ...entryForm, roleLabel },
+        });
+        setMessage('Person added to schedule.');
       }
-      resetForm(roleLabel);
-      await load();
+      setEntryForm(emptyEntry);
+      setEditingEntryId(null);
+      await loadDetail(id);
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  function startEditEntry(entry) {
+    const known = assignmentLabels.some(
+      (l) => l.name.toLowerCase() === (entry.roleLabel || '').toLowerCase()
+    );
+    setEditingEntryId(entry._id);
+    setEntryForm({
+      member: entry.member?._id || entry.member,
+      date: toDateInputValue(entry.date),
+      roleLabel: known ? entry.roleLabel : NEW_ASSIGNMENT,
+      customAssignment: known ? '' : entry.roleLabel || '',
+      notes: entry.notes || '',
+    });
+  }
+
+  async function removeEntry(entryId) {
+    if (!window.confirm('Remove this person from the schedule?')) return;
+    await api(`/schedules/${id}/entries/${entryId}`, { method: 'DELETE' });
+    if (editingEntryId === entryId) {
+      setEditingEntryId(null);
+      setEntryForm(emptyEntry);
+    }
+    await loadDetail(id);
+  }
+
+  async function removeSchedule(scheduleId) {
+    if (!window.confirm('Delete this entire schedule and all its entries?')) return;
+    await api(`/schedules/${scheduleId}`, { method: 'DELETE' });
+    navigate('/schedule');
   }
 
   async function onUpload(e) {
@@ -215,34 +395,314 @@ export default function Schedule() {
     try {
       const body = new FormData();
       body.append('file', file);
-      const result = await api('/assignments/upload', { method: 'POST', body });
+      const result = await api(`/schedules/${id}/entries/upload`, { method: 'POST', body });
       setMessage(
-        `Uploaded ${result.created} assignment(s).${
-          result.errors?.length ? ` ${result.errors.length} row(s) skipped.` : ''
+        `Added ${result.created} row(s).${
+          result.errors?.length ? ` ${result.errors.length} skipped.` : ''
         }`
       );
       setFile(null);
       e.target.reset();
-      await load();
+      await loadDetail(id);
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function remove(id) {
-    if (!window.confirm('Delete this assignment?')) return;
-    await api(`/assignments/${id}`, { method: 'DELETE' });
-    if (editingId === id) resetForm();
-    await load();
+  if (id && detail) {
+    return (
+      <div className="page">
+        <header className="page-head">
+          <div>
+            <Link to="/schedule" className="linkish">
+              ← All schedules
+            </Link>
+            <h1>{detail.name}</h1>
+            <p className="muted">
+              {detail.department?.name} · {formatChannelsLabel(scheduleChannels(detail))} ·{' '}
+              {detail.messageTemplate ? templateDisplayTitle(detail.messageTemplate) : '—'} ·{' '}
+              {detail.entries?.length || 0} people
+            </p>
+          </div>
+          <button type="button" className="btn danger-ghost" onClick={() => removeSchedule(id)}>
+            Delete schedule
+          </button>
+        </header>
+
+        {message && <p className="success">{message}</p>}
+        {error && <p className="error">{error}</p>}
+
+        <section className="panel-grid">
+          <form className="panel stack" onSubmit={onSaveSettings}>
+            <h2>Schedule settings</h2>
+            <label>
+              Name
+              <input
+                value={settingsForm?.name || ''}
+                onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Department
+              <select
+                value={settingsForm?.department || ''}
+                onChange={(e) => setSettingsForm({ ...settingsForm, department: e.target.value })}
+                required
+              >
+                {departments.map((d) => (
+                  <option key={d._id} value={d._id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <ChannelDropdown
+              sendSms={settingsForm?.sendSms ?? false}
+              sendWhatsApp={settingsForm?.sendWhatsApp ?? false}
+              onChange={({ sendSms, sendWhatsApp }) =>
+                setSettingsForm({ ...settingsForm, sendSms, sendWhatsApp })
+              }
+            />
+            <label>
+              Message template
+              <select
+                value={settingsForm?.messageTemplateId || ''}
+                onChange={(e) =>
+                  setSettingsForm({ ...settingsForm, messageTemplateId: e.target.value })
+                }
+                required
+              >
+                {scheduleTemplates.map((t) => (
+                  <option key={t._id} value={t._id}>
+                    {templateDisplayTitle(t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="muted small">
+              One template works on any channel. Manage wording in{' '}
+              <Link to="/messages" className="linkish">
+                Message Hub
+              </Link>
+              .
+            </p>
+            <label>
+              Notes
+              <input
+                value={settingsForm?.notes || ''}
+                onChange={(e) => setSettingsForm({ ...settingsForm, notes: e.target.value })}
+              />
+            </label>
+            <button className="btn primary" type="submit">
+              Save settings
+            </button>
+          </form>
+
+          <form className="panel stack" onSubmit={onAddEntry}>
+            <h2>{editingEntryId ? 'Edit entry' : 'Add person'}</h2>
+            <label>
+              Person
+              <select
+                value={entryForm.member}
+                onChange={(e) => setEntryForm({ ...entryForm, member: e.target.value })}
+                required
+              >
+                <option value="" disabled>
+                  Select
+                </option>
+                {deptMembers.map((m) => (
+                  <option key={m._id} value={m._id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Date
+              <input
+                type="date"
+                value={entryForm.date}
+                onChange={(e) => setEntryForm({ ...entryForm, date: e.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Assignment
+              <select
+                value={entryForm.roleLabel}
+                onChange={(e) =>
+                  setEntryForm({
+                    ...entryForm,
+                    roleLabel: e.target.value,
+                    customAssignment:
+                      e.target.value === NEW_ASSIGNMENT ? entryForm.customAssignment : '',
+                  })
+                }
+                required
+              >
+                <option value="" disabled>
+                  Select
+                </option>
+                {assignmentLabels.map((label) => (
+                  <option key={label._id} value={label.name}>
+                    {label.name}
+                  </option>
+                ))}
+                <option value={NEW_ASSIGNMENT}>+ Add new assignment</option>
+              </select>
+            </label>
+            {entryForm.roleLabel === NEW_ASSIGNMENT && (
+              <label>
+                New assignment name
+                <input
+                  value={entryForm.customAssignment}
+                  onChange={(e) => setEntryForm({ ...entryForm, customAssignment: e.target.value })}
+                  required
+                />
+              </label>
+            )}
+            <label>
+              Notes
+              <input
+                value={entryForm.notes}
+                onChange={(e) => setEntryForm({ ...entryForm, notes: e.target.value })}
+              />
+            </label>
+            <div className="row-actions">
+              <button className="btn primary" type="submit">
+                {editingEntryId ? 'Save entry' : 'Add to schedule'}
+              </button>
+              {editingEntryId && (
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => {
+                    setEditingEntryId(null);
+                    setEntryForm(emptyEntry);
+                  }}
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
+          </form>
+
+          <form className="panel stack" onSubmit={onUpload}>
+            <h2>Upload CSV</h2>
+            <p className="muted small">Columns: date, member, email, assignment, notes</p>
+            <label className="file-input">
+              CSV file
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            <button className="btn primary" type="submit">
+              Upload to this schedule
+            </button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <h2>Roster</h2>
+          <div className="data-list">
+            {(detail.entries || []).map((entry) => (
+              <article className="data-card" key={entry._id}>
+                <div className="data-card-top">
+                  <div>
+                    <h3>{entry.member?.name}</h3>
+                    <p className="muted small">{formatDate(entry.date)}</p>
+                  </div>
+                  <div className="data-card-actions">
+                    <span className={`pill ${entry.reminderSentAt ? 'ok' : 'warn'}`}>
+                      {entry.reminderSentAt ? 'Sent' : 'Pending'}
+                    </span>
+                    <button type="button" className="btn ghost" onClick={() => startEditEntry(entry)}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="btn danger-ghost"
+                      onClick={() => removeEntry(entry._id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+                <dl className="meta-grid">
+                  <div>
+                    <dt>Assignment</dt>
+                    <dd>{entry.roleLabel || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Notes</dt>
+                    <dd>{entry.notes || '—'}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+            {!detail.entries?.length && (
+              <p className="empty-state">No people on this schedule yet. Add someone or upload CSV.</p>
+            )}
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Person</th>
+                  <th>Assignment</th>
+                  <th>Notes</th>
+                  <th>Reminder</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(detail.entries || []).map((entry) => (
+                  <tr key={entry._id}>
+                    <td>{formatDate(entry.date)}</td>
+                    <td>{entry.member?.name}</td>
+                    <td>{entry.roleLabel}</td>
+                    <td>{entry.notes || '—'}</td>
+                    <td>
+                      <span className={`pill ${entry.reminderSentAt ? 'ok' : 'warn'}`}>
+                        {entry.reminderSentAt ? 'Sent' : 'Pending'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="table-actions">
+                        <button type="button" className="btn ghost" onClick={() => startEditEntry(entry)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn danger-ghost"
+                          onClick={() => removeEntry(entry._id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   return (
     <div className="page">
       <header className="page-head">
         <div>
-          <h1>Schedule</h1>
+          <h1>Schedules</h1>
           <p className="muted">
-            Upload the month or quarter once. People get reminded automatically.
+            Create a named roster for a quarter or season. Pick one message template and choose SMS, WhatsApp, or both for delivery.
           </p>
         </div>
       </header>
@@ -251,31 +711,22 @@ export default function Schedule() {
       {error && <p className="error">{error}</p>}
 
       <section className="panel-grid">
-        <form className="panel stack" onSubmit={onUpload}>
-          <h2>Upload CSV</h2>
-          <p className="muted small">
-            Columns: date, department, member, email, assignment, notes
-          </p>
-          <label className="file-input">
-            CSV file
+        <form className="panel stack" onSubmit={onCreateSchedule}>
+          <h2>Create schedule</h2>
+          <label>
+            Name
             <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              value={createForm.name}
+              onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+              placeholder="Q3 Sunday School"
+              required
             />
           </label>
-          <button className="btn primary" type="submit">
-            Upload schedule
-          </button>
-        </form>
-
-        <form className="panel stack" onSubmit={onManualSubmit}>
-          <h2>{editingId ? 'Edit assignment' : 'Add one assignment'}</h2>
           <label>
             Department
             <select
-              value={form.department}
-              onChange={(e) => setForm({ ...form, department: e.target.value, member: '' })}
+              value={createForm.department}
+              onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
               required
             >
               <option value="" disabled>
@@ -288,270 +739,201 @@ export default function Schedule() {
               ))}
             </select>
           </label>
+          <ChannelDropdown
+            sendSms={createForm.sendSms}
+            sendWhatsApp={createForm.sendWhatsApp}
+            onChange={({ sendSms, sendWhatsApp }) =>
+              setCreateForm({ ...createForm, sendSms, sendWhatsApp })
+            }
+          />
           <label>
-            Person
+            Message template
             <select
-              value={form.member}
-              onChange={(e) => setForm({ ...form, member: e.target.value })}
-              required
-            >
-              <option value="" disabled>
-                Select
-              </option>
-              {filteredMembers.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Date
-            <input
-              type="date"
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Assignment
-            <select
-              value={form.roleLabel}
+              value={createForm.messageTemplateId}
               onChange={(e) =>
-                setForm({
-                  ...form,
-                  roleLabel: e.target.value,
-                  customAssignment:
-                    e.target.value === NEW_ASSIGNMENT ? form.customAssignment : '',
-                })
+                setCreateForm({ ...createForm, messageTemplateId: e.target.value })
               }
               required
             >
               <option value="" disabled>
-                Select assignment
+                Select template
               </option>
-              {assignmentLabels.map((label) => (
-                <option key={label._id} value={label.name}>
-                  {label.name}
+              {scheduleTemplates.map((t) => (
+                <option key={t._id} value={t._id}>
+                  {templateDisplayTitle(t)}
                 </option>
               ))}
-              <option value={NEW_ASSIGNMENT}>+ Add new assignment</option>
             </select>
           </label>
-          {form.roleLabel === NEW_ASSIGNMENT && (
-            <label>
-              New assignment name
-              <input
-                value={form.customAssignment}
-                onChange={(e) => setForm({ ...form, customAssignment: e.target.value })}
-                placeholder="e.g. Teach, Lead Usher"
-                required
-              />
-            </label>
-          )}
+          <p className="muted small">
+            Templates work on SMS and WhatsApp. Manage them in{' '}
+            <Link to="/messages" className="linkish">
+              Message Hub
+            </Link>
+            .
+          </p>
           <label>
             Notes
             <input
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              placeholder="Optional instructions"
+              value={createForm.notes}
+              onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })}
             />
           </label>
-          <div className="row-actions">
-            <button className="btn primary" type="submit">
-              {editingId ? 'Save changes' : 'Save assignment'}
-            </button>
-            {editingId && (
-              <button type="button" className="btn ghost" onClick={() => resetForm()}>
-                Cancel edit
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
 
-      <section className="panel">
-        <div className="section-head">
-          <div>
-            <h2>All assignments</h2>
-            <p className="muted small">
-              Showing {filteredAssignments.length} of {assignments.length}
-            </p>
-          </div>
-          {filtersActive && (
-            <button
-              type="button"
-              className="linkish"
-              onClick={() => setFilters(emptyFilters)}
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-
-        <div className="filter-bar">
-          <label>
-            Department
-            <select
-              value={filters.department}
-              onChange={(e) =>
-                setFilters({ ...filters, department: e.target.value, member: '' })
-              }
-            >
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Person
-            <select
-              value={filters.member}
-              onChange={(e) => setFilters({ ...filters, member: e.target.value })}
-            >
-              <option value="">All people</option>
-              {filterMembers.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Assignment
-            <select
-              value={filters.roleLabel}
-              onChange={(e) => setFilters({ ...filters, roleLabel: e.target.value })}
-            >
-              <option value="">All assignments</option>
-              {assignmentLabels.map((label) => (
-                <option key={label._id} value={label.name}>
-                  {label.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            From
+          <label className="checkbox-row">
             <input
-              type="date"
-              value={filters.from}
-              onChange={(e) => setFilters({ ...filters, from: e.target.value })}
+              type="checkbox"
+              checked={createForm.addFirstPerson}
+              onChange={(e) => setCreateForm({ ...createForm, addFirstPerson: e.target.checked })}
             />
+            Add a person now (optional)
           </label>
-          <label>
-            Reminder
-            <select
-              value={filters.reminder}
-              onChange={(e) => setFilters({ ...filters, reminder: e.target.value })}
-            >
-              <option value="all">All</option>
-              <option value="pending">Pending</option>
-              <option value="sent">Sent</option>
-            </select>
-          </label>
-        </div>
 
-        <div className="data-list">
-          {filteredAssignments.map((a) => (
-            <article className="data-card" key={a._id}>
-              <div className="data-card-top">
-                <div>
-                  <h3>{a.member?.name}</h3>
-                  <p className="muted small">{formatDate(a.date)}</p>
-                </div>
-                <div className="data-card-actions">
-                  <span className={`pill ${a.reminderSentAt ? 'ok' : 'warn'}`}>
-                    {a.reminderSentAt ? 'Sent' : 'Pending'}
-                  </span>
-                  <button type="button" className="btn ghost" onClick={() => startEdit(a)}>
-                    Edit
-                  </button>
-                  <button type="button" className="btn danger-ghost" onClick={() => remove(a._id)}>
-                    Delete
-                  </button>
-                </div>
-              </div>
-              <dl className="meta-grid">
-                <div>
-                  <dt>Department</dt>
-                  <dd>{a.department?.name || '—'}</dd>
-                </div>
-                <div>
-                  <dt>Assignment</dt>
-                  <dd>{a.roleLabel || '—'}</dd>
-                </div>
-                <div>
-                  <dt>Notes</dt>
-                  <dd>{a.notes || '—'}</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
-          {!filteredAssignments.length && (
-            <p className="empty-state">
-              {assignments.length ? 'No assignments match these filters.' : 'No schedule entries yet.'}
+          {createForm.addFirstPerson && (
+            <>
+              <label>
+                Person
+                <select
+                  value={createForm.member}
+                  onChange={(e) => setCreateForm({ ...createForm, member: e.target.value })}
+                >
+                  <option value="">Select</option>
+                  {members
+                    .filter((m) => {
+                      if (!createForm.department) return true;
+                      if (!m.department) return true;
+                      return (
+                        m.department?._id === createForm.department ||
+                        m.department === createForm.department
+                      );
+                    })
+                    .map((m) => (
+                      <option key={m._id} value={m._id}>
+                        {m.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Date
+                <input
+                  type="date"
+                  value={createForm.date}
+                  onChange={(e) => setCreateForm({ ...createForm, date: e.target.value })}
+                />
+              </label>
+              <label>
+                Assignment
+                <select
+                  value={createForm.roleLabel}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      roleLabel: e.target.value,
+                      customAssignment:
+                        e.target.value === NEW_ASSIGNMENT ? createForm.customAssignment : '',
+                    })
+                  }
+                >
+                  <option value="">Select</option>
+                  {assignmentLabels.map((label) => (
+                    <option key={label._id} value={label.name}>
+                      {label.name}
+                    </option>
+                  ))}
+                  <option value={NEW_ASSIGNMENT}>+ Add new</option>
+                </select>
+              </label>
+              {createForm.roleLabel === NEW_ASSIGNMENT && (
+                <label>
+                  New assignment
+                  <input
+                    value={createForm.customAssignment}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, customAssignment: e.target.value })
+                    }
+                  />
+                </label>
+              )}
+            </>
+          )}
+
+          <button className="btn primary" type="submit">
+            Create schedule
+          </button>
+        </form>
+
+        <div className="panel">
+          <h2>Your schedules</h2>
+
+          <div className="schedule-find-bar">
+            <label className="schedule-find-search">
+              Find a schedule
+              <input
+                type="search"
+                placeholder="Search by name, department, or notes…"
+                value={scheduleSearch}
+                onChange={(e) => setScheduleSearch(e.target.value)}
+              />
+            </label>
+            <label>
+              Department
+              <select
+                value={scheduleDepartment}
+                onChange={(e) => setScheduleDepartment(e.target.value)}
+              >
+                <option value="">All departments</option>
+                {departments.map((d) => (
+                  <option key={d._id} value={d._id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {(scheduleSearch || scheduleDepartment) && (
+            <p className="muted small">
+              Showing {visibleSchedules.length} of {schedules.length} schedules ·{' '}
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => {
+                  setScheduleSearch('');
+                  setScheduleDepartment('');
+                }}
+              >
+                Clear
+              </button>
             </p>
           )}
-        </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Department</th>
-                <th>Person</th>
-                <th>Assignment</th>
-                <th>Notes</th>
-                <th>Reminder</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAssignments.map((a) => (
-                <tr key={a._id}>
-                  <td>{formatDate(a.date)}</td>
-                  <td>{a.department?.name}</td>
-                  <td>{a.member?.name}</td>
-                  <td>{a.roleLabel}</td>
-                  <td>{a.notes || '—'}</td>
-                  <td>
-                    <span className={`pill ${a.reminderSentAt ? 'ok' : 'warn'}`}>
-                      {a.reminderSentAt ? 'Sent' : 'Pending'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="table-actions">
-                      <button type="button" className="btn ghost" onClick={() => startEdit(a)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn danger-ghost"
-                        onClick={() => remove(a._id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!filteredAssignments.length && (
-                <tr>
-                  <td colSpan={7} className="muted">
-                    {assignments.length
-                      ? 'No assignments match these filters.'
-                      : 'No schedule entries yet.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <ul className="schedule-list">
+            {visibleSchedules.map((s) => (
+              <li key={s._id}>
+                <Link to={`/schedule/${s._id}`} className="schedule-card">
+                  <strong>{s.name}</strong>
+                  <span className="muted small">
+                    {s.department?.name} · {formatChannelsLabel(scheduleChannels(s))} ·{' '}
+                    {s.entryCount || 0} people
+                    {s.dateFrom && s.dateTo
+                      ? ` · ${formatDate(s.dateFrom)} – ${formatDate(s.dateTo)}`
+                      : ''}
+                  </span>
+                  <span className="muted small">
+                    Template:{' '}
+                    {s.messageTemplate ? templateDisplayTitle(s.messageTemplate) : '—'}
+                  </span>
+                </Link>
+              </li>
+            ))}
+            {!visibleSchedules.length && schedules.length > 0 && (
+              <li className="muted empty-state">No schedules match your search.</li>
+            )}
+            {!schedules.length && (
+              <li className="muted empty-state">No schedules yet. Create one to get started.</li>
+            )}
+          </ul>
         </div>
       </section>
     </div>

@@ -8,6 +8,7 @@ import Members from './pages/Members';
 import Schedule from './pages/Schedule';
 import Celebrations from './pages/Celebrations';
 import MessageHub from './pages/MessageHub';
+import Settings from './pages/Settings';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -32,8 +33,10 @@ export default function App() {
         <Route path="departments" element={<Departments />} />
         <Route path="members" element={<Members />} />
         <Route path="schedule" element={<Schedule />} />
+        <Route path="schedule/:id" element={<Schedule />} />
         <Route path="celebrations" element={<Celebrations />} />
         <Route path="messages" element={<MessageHub />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -9,6 +9,7 @@ const links = [
   { to: '/schedule', label: 'Schedule' },
   { to: '/celebrations', label: 'Celebrations' },
   { to: '/messages', label: 'Message hub' },
+  { to: '/settings', label: 'Settings' },
 ];
 
 export default function Layout() {

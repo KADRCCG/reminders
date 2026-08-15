@@ -1,6 +1,6 @@
 import Member from '../models/Member.js';
 import CelebrationLog from '../models/CelebrationLog.js';
-import { sendWhatsApp } from './messagingService.js';
+import { sendSms, sendWhatsApp } from './messagingService.js';
 import {
   birthdayAge,
   birthdayMatches,
@@ -11,6 +11,7 @@ import {
   anniversaryYears,
   formatAnniversaryLabel,
 } from '../utils/anniversary.js';
+import { getCelebrationAdminContacts } from '../utils/appSettings.js';
 import { getRenderedTemplate } from '../utils/messageTemplates.js';
 
 function startOfDay(date) {
@@ -34,11 +35,39 @@ async function alreadyAnnounced(type, year, memberIds) {
   return logs.some((log) => memberKey(log.members) === key);
 }
 
-function getAnnouncementRecipients() {
-  return (process.env.CELEBRATION_WHATSAPP_TO || process.env.CELEBRATION_ANNOUNCE_TO || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+function getCelebrationChannels() {
+  const raw = process.env.CELEBRATION_CHANNELS || 'sms,whatsapp';
+  const channels = [
+    ...new Set(raw.split(',').map((s) => s.trim()).filter((c) => c === 'sms' || c === 'whatsapp')),
+  ];
+  return channels.length ? channels : ['sms', 'whatsapp'];
+}
+
+export async function getCelebrationSettings() {
+  const channels = getCelebrationChannels();
+  const adminContacts = await getCelebrationAdminContacts();
+  return {
+    channels,
+    sendSms: channels.includes('sms'),
+    sendWhatsApp: channels.includes('whatsapp'),
+    adminContacts,
+    adminContactsConfigured: adminContacts.length > 0,
+    adminContactCount: adminContacts.length,
+  };
+}
+
+async function sendOnChannels({ to, body, channels }) {
+  let lastChannel = 'console';
+  for (const ch of channels) {
+    const delivery =
+      ch === 'whatsapp' ? await sendWhatsApp({ to, body }) : await sendSms({ to, body });
+    lastChannel = delivery.channel === 'console' ? 'console' : ch;
+  }
+  return lastChannel;
+}
+
+async function getAnnouncementRecipients() {
+  return getCelebrationAdminContacts();
 }
 
 export async function getTodaysCelebrations(referenceDate = new Date()) {
@@ -174,32 +203,36 @@ async function announceEvent(event, year, occurrenceDate) {
           years_line: yearsAnnounce,
         });
 
+  const channels = getCelebrationChannels();
+
   try {
     let channel = 'console';
     let delivered = 0;
 
     for (const person of event.members) {
       if (!person.phone) continue;
-      const delivery = await sendWhatsApp({
+      channel = await sendOnChannels({
         to: person.phone,
         body: personalText,
+        channels,
       });
-      channel = delivery.channel === 'console' ? 'console' : 'whatsapp';
-      delivered += 1;
+      delivered += channels.length;
     }
 
-    const leaders = getAnnouncementRecipients();
-    for (const to of leaders) {
-      const delivery = await sendWhatsApp({
+    const adminRecipients = await getAnnouncementRecipients();
+    for (const to of adminRecipients) {
+      channel = await sendOnChannels({
         to,
         body: announceText,
+        channels,
       });
-      channel = delivery.channel === 'console' ? 'console' : 'whatsapp';
-      delivered += 1;
+      delivered += channels.length;
     }
 
     if (!delivered) {
-      throw new Error('No WhatsApp recipients (add member phone numbers or CELEBRATION_WHATSAPP_TO)');
+      throw new Error(
+        'No recipients found. Add phone numbers on member records or configure admin contacts for announcements.'
+      );
     }
 
     await CelebrationLog.create({
@@ -219,7 +252,7 @@ async function announceEvent(event, year, occurrenceDate) {
       members: memberIds,
       year,
       occurrenceDate,
-      channel: 'whatsapp',
+      channel: channels[0] || 'whatsapp',
       status: 'failed',
       message: announceText,
       error: err.message,
