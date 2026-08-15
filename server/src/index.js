@@ -20,13 +20,34 @@ import { ensureMessageTemplates } from './utils/messageTemplates.js';
 const app = express();
 const port = process.env.PORT || 5000;
 
+const allowedOrigins = String(process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin(origin, callback) {
+      // Allow non-browser / same-origin tools with no Origin header
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     credentials: true,
   })
 );
 app.use(express.json());
+
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'RCCG-KAD Workforce Reminders API',
+    health: '/api/health',
+    hint: 'This is the API only. Open /api/health to verify, and use your frontend URL for the admin UI.',
+  });
+});
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'church-reminders-api' });
@@ -88,7 +109,13 @@ async function start() {
   }
 
   app.listen(port, () => {
-    console.log(`API listening on http://localhost:${port}`);
+    const publicUrl = process.env.RENDER_EXTERNAL_URL;
+    if (publicUrl) {
+      console.log(`API listening on port ${port}`);
+      console.log(`Public URL: ${publicUrl}`);
+    } else {
+      console.log(`API listening on http://localhost:${port}`);
+    }
   });
 }
 
