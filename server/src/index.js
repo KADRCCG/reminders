@@ -99,7 +99,14 @@ async function start() {
   await ensureMessageTemplates();
   await syncSystemTemplateDescriptions();
   await migrateUnifiedTemplates();
-  await migrateAssignmentsToSchedules();
+  try {
+    const migration = await migrateAssignmentsToSchedules();
+    if (migration.migrated > 0) {
+      console.log('[startup] Assignment migration:', migration);
+    }
+  } catch (err) {
+    console.error('[startup] Assignment migration failed (server will still start):', err.message);
+  }
   await backfillAssignmentLabels();
 
   if (cron.validate(cronExpr)) {

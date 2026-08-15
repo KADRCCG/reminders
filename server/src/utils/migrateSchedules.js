@@ -22,23 +22,40 @@ export async function migrateAssignmentsToSchedules() {
   const byDept = new Map();
 
   for (const a of assignments) {
-    const deptId = String(a.department?._id || a.department);
-    if (!byDept.has(deptId)) byDept.set(deptId, []);
-    byDept.get(deptId).push(a);
+    const deptId = a.department?._id || a.department;
+    if (!deptId) {
+      console.warn(`[migrate] Skipping assignment ${a._id}: missing department`);
+      continue;
+    }
+    const key = String(deptId);
+    if (!byDept.has(key)) byDept.set(key, []);
+    byDept.get(key).push(a);
   }
 
   let migrated = 0;
+  let schedulesCreated = 0;
 
   for (const [, rows] of byDept) {
-    const dept = rows[0].department;
+    const dept = rows[0]?.department;
+    const deptId = dept?._id || rows[0]?.department;
+    if (!deptId) {
+      console.warn('[migrate] Skipping assignment group with no department');
+      continue;
+    }
+
     const schedule = await Schedule.create({
       name: `Migrated — ${dept?.name || 'Department'}`,
-      department: dept._id,
+      department: deptId,
       messageTemplate: defaultTemplate._id,
       notes: 'Auto-migrated from legacy assignments',
     });
+    schedulesCreated += 1;
 
     for (const row of rows) {
+      if (!row.member) {
+        console.warn(`[migrate] Skipping assignment ${row._id}: missing member`);
+        continue;
+      }
       await ScheduleEntry.create({
         schedule: schedule._id,
         member: row.member,
@@ -51,6 +68,8 @@ export async function migrateAssignmentsToSchedules() {
     }
   }
 
-  console.log(`[migrate] Copied ${migrated} assignment(s) into ${byDept.size} schedule(s)`);
-  return { migrated, schedules: byDept.size };
+  console.log(
+    `[migrate] Copied ${migrated} assignment(s) into ${schedulesCreated} schedule(s)`
+  );
+  return { migrated, schedules: schedulesCreated };
 }
