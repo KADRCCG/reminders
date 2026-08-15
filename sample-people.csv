@@ -1,0 +1,6 @@
+name,email,phone,department,birthdayMonth,birthdayDay,birthdayYear,spouseEmail,anniversaryMonth,anniversaryDay,anniversaryYear
+Ada Okonkwo,ada@example.com,08030000001,Sunday School,8,13,,,,,,
+Chidi Nwosu,chidi@example.com,08030000002,Sunday School,3,12,1990,,,,
+Grace Bello,grace@example.com,08030000003,Ushers,11,2,,samuel@example.com,8,13,
+Samuel Ade,samuel@example.com,08030000004,Choir,7,19,1988,grace@example.com,8,13,
+Uju Guest,uj.guest@example.com,08035550000,,,,,,,
