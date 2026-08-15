@@ -49,7 +49,19 @@ app.use((err, _req, res, _next) => {
 const cronExpr = process.env.REMINDER_CRON || '0 8 * * *';
 
 async function start() {
-  await connectDB(process.env.MONGODB_URI);
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error(
+      'MONGODB_URI is not set. On Render, add an Atlas connection string in Environment (not localhost).'
+    );
+  }
+  if (/127\.0\.0\.1|localhost/i.test(mongoUri) && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'MONGODB_URI points to localhost, which does not work on Render. Use a MongoDB Atlas URI.'
+    );
+  }
+
+  await connectDB(mongoUri);
   await ensureAdminFromEnv();
   await ensureMessageTemplates();
   await backfillAssignmentLabels();
