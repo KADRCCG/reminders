@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "build": "echo \"No build step for API\"",
     "seed": "node src/utils/seed.js"
   },
   "dependencies": {
