@@ -17,6 +17,7 @@ const scheduleSchema = new mongoose.Schema(
       ref: 'MessageTemplate',
       default: null,
     },
+    messageBody: { type: String, default: '', trim: true },
     notes: { type: String, default: '', trim: true },
     active: { type: Boolean, default: true },
   },

@@ -1008,6 +1008,40 @@ button.btn {
   width: auto;
 }
 
+.schedule-message-editor textarea {
+  min-height: 10rem;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
+}
+
+.placeholder-chips-wrap {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.placeholder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.placeholder-chip {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.placeholder-chip:hover {
+  border-color: var(--green, #1b7a4e);
+  background: #f4fbf6;
+}
+
 .channel-dropdown-wrap {
   position: relative;
   display: flex;

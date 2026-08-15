@@ -1,7 +1,7 @@
 import ScheduleEntry from '../models/ScheduleEntry.js';
 import ReminderLog from '../models/ReminderLog.js';
 import { sendSms, sendWhatsApp } from './messagingService.js';
-import { getRenderedTemplateById } from '../utils/messageTemplates.js';
+import { getRenderedTemplateById, renderTemplate } from '../utils/messageTemplates.js';
 
 function startOfDay(date) {
   const d = new Date(date);
@@ -141,7 +141,13 @@ export async function processReminders(referenceDate = new Date()) {
       notes_line: entry.notes ? `Notes: ${entry.notes}.` : '',
     };
 
-    if (!templateId) {
+    const scheduleBody = String(schedule.messageBody || '').trim();
+    let text;
+    if (scheduleBody) {
+      text = renderTemplate(scheduleBody, templateVars);
+    } else if (templateId) {
+      text = await getRenderedTemplateById(templateId, templateVars);
+    } else {
       for (const ch of pendingChannels) {
         await ReminderLog.create({
           scheduleEntry: entry._id,
@@ -149,15 +155,13 @@ export async function processReminders(referenceDate = new Date()) {
           channel: ch,
           status: 'failed',
           message: '',
-          error: 'No message template configured for this schedule',
+          error: 'No message configured for this schedule',
         });
         results.failed += 1;
       }
-      results.reasons.push(`${person}: no message template configured`);
+      results.reasons.push(`${person}: no message configured`);
       continue;
     }
-
-    const text = await getRenderedTemplateById(templateId, templateVars);
 
     for (const ch of pendingChannels) {
       const label = channelLabel(ch);

@@ -47,19 +47,24 @@ function isScheduleTemplate(tpl) {
   );
 }
 
-async function resolveTemplate(messageTemplateId) {
-  if (messageTemplateId) {
-    const tpl = await MessageTemplate.findById(messageTemplateId);
-    if (!tpl) throw new Error('Message template not found');
-    if (!isScheduleTemplate(tpl)) {
-      throw new Error('Choose a schedule reminder template from Message Hub');
-    }
-    return tpl._id;
+async function resolveTemplate(messageTemplateId, { messageMode, messageBody } = {}) {
+  const body = String(messageBody || '').trim();
+  if (!body) throw new Error('Message text is required');
+
+  if (messageMode === 'custom') {
+    return null;
   }
 
-  const fallback = await MessageTemplate.findOne({ key: 'schedule_reminder' });
-  if (!fallback) throw new Error('No schedule template available in Message Hub');
-  return fallback._id;
+  if (!messageTemplateId) {
+    throw new Error('Choose a message template');
+  }
+
+  const tpl = await MessageTemplate.findById(messageTemplateId);
+  if (!tpl) throw new Error('Message template not found');
+  if (!isScheduleTemplate(tpl)) {
+    throw new Error('Choose a schedule reminder template from Message Hub');
+  }
+  return tpl._id;
 }
 
 async function createEntry(scheduleId, payload) {
@@ -120,14 +125,20 @@ router.post('/', async (req, res) => {
     if (!dept) return res.status(400).json({ message: 'Department not found' });
 
     const channels = normalizeChannels(req.body);
-    const templateId = req.body.messageTemplateId || req.body.smsTemplateId || req.body.whatsappTemplateId;
-    const messageTemplate = await resolveTemplate(templateId);
+    const messageMode = req.body.messageMode === 'custom' ? 'custom' : 'template';
+    const messageBody = String(req.body.messageBody || '').trim();
+    const templateId =
+      messageMode === 'custom'
+        ? null
+        : req.body.messageTemplateId || req.body.smsTemplateId || req.body.whatsappTemplateId;
+    const messageTemplate = await resolveTemplate(templateId, { messageMode, messageBody });
 
     const schedule = await Schedule.create({
       name: String(name).trim(),
       department,
       channels,
       messageTemplate,
+      messageBody,
       notes: notes || '',
     });
 
@@ -176,12 +187,24 @@ router.put('/:id', async (req, res) => {
     const channels = normalizeChannels(req.body, schedule);
     schedule.channels = channels;
 
-    const templateId =
-      req.body.messageTemplateId || req.body.smsTemplateId || req.body.whatsappTemplateId;
-    if (templateId) {
-      schedule.messageTemplate = await resolveTemplate(templateId);
-    } else if (!schedule.messageTemplate) {
-      schedule.messageTemplate = await resolveTemplate();
+    if (req.body.messageBody != null || req.body.messageMode != null || req.body.messageTemplateId != null) {
+      const messageMode =
+        req.body.messageMode === 'custom' ? 'custom' : req.body.messageMode === 'template' ? 'template' : schedule.messageTemplate ? 'template' : 'custom';
+      const messageBody =
+        req.body.messageBody != null ? String(req.body.messageBody).trim() : schedule.messageBody;
+      const templateId =
+        messageMode === 'custom'
+          ? null
+          : req.body.messageTemplateId ||
+            req.body.smsTemplateId ||
+            req.body.whatsappTemplateId ||
+            schedule.messageTemplate;
+
+      schedule.messageBody = messageBody;
+      schedule.messageTemplate = await resolveTemplate(templateId, { messageMode, messageBody });
+    } else if (!schedule.messageTemplate && !String(schedule.messageBody || '').trim()) {
+      const fallback = await MessageTemplate.findOne({ key: 'schedule_reminder' });
+      if (fallback) schedule.messageTemplate = fallback._id;
     }
 
     await schedule.save();

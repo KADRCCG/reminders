@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { templateDisplayTitle } from '../utils/templateDisplay';
+import ScheduleMessageEditor from '../components/ScheduleMessageEditor';
 
 const NEW_ASSIGNMENT = '__new__';
 
@@ -95,17 +96,29 @@ function scheduleChannels(schedule) {
   return schedule?.channel === 'whatsapp' ? ['whatsapp'] : ['sms'];
 }
 
+function scheduleMessageLabel(schedule) {
+  if (schedule?.messageTemplate) return templateDisplayTitle(schedule.messageTemplate);
+  if (schedule?.messageBody?.trim()) return 'Custom message';
+  return '—';
+}
+
 function scheduleFormFromData(schedule, templates) {
   const channels = scheduleChannels(schedule);
   const mt = schedule?.messageTemplate;
+  const templateId = mt?._id || mt || '';
+  const storedBody = schedule?.messageBody?.trim() || '';
+  const template =
+    templates.find((t) => t._id === templateId) || defaultScheduleTemplate(templates);
+  const messageMode = templateId ? 'template' : 'custom';
 
   return {
     name: schedule.name,
     department: schedule.department?._id || schedule.department,
     sendSms: channels.includes('sms'),
     sendWhatsApp: channels.includes('whatsapp'),
-    messageTemplateId:
-      mt?._id || mt || defaultScheduleTemplate(templates)?._id || '',
+    messageMode,
+    messageTemplateId: templateId ? String(templateId) : String(defaultScheduleTemplate(templates)?._id || ''),
+    messageBody: storedBody || template?.body || '',
     notes: schedule.notes || '',
   };
 }
@@ -115,7 +128,9 @@ const emptyCreate = {
   department: '',
   sendSms: true,
   sendWhatsApp: false,
+  messageMode: 'template',
   messageTemplateId: '',
+  messageBody: '',
   notes: '',
   addFirstPerson: false,
   member: '',
@@ -217,10 +232,13 @@ export default function Schedule() {
     setAssignmentLabels(labelData);
     setCreateForm((prev) => {
       const defaultTpl = defaultScheduleTemplate(templateData);
+      const templateId = prev.messageTemplateId || defaultTpl?._id || '';
       return {
         ...prev,
         department: prev.department || deptData[0]?._id || '',
-        messageTemplateId: prev.messageTemplateId || defaultTpl?._id || '',
+        messageMode: prev.messageMode === 'custom' && !prev.messageTemplateId ? 'custom' : 'template',
+        messageTemplateId: templateId ? String(templateId) : '',
+        messageBody: prev.messageBody || defaultTpl?.body || '',
       };
     });
   }
@@ -260,6 +278,21 @@ export default function Schedule() {
     });
   }, [members, detail, createForm.department]);
 
+  function buildMessagePayload(form) {
+    const messageBody = form.messageBody.trim();
+    if (!messageBody) {
+      throw new Error('Message text is required');
+    }
+    if (form.messageMode === 'template' && !form.messageTemplateId) {
+      throw new Error('Choose a message template');
+    }
+    return {
+      messageMode: form.messageMode,
+      messageTemplateId: form.messageMode === 'template' ? form.messageTemplateId : null,
+      messageBody,
+    };
+  }
+
   async function onCreateSchedule(e) {
     e.preventDefault();
     setError('');
@@ -270,8 +303,8 @@ export default function Schedule() {
         name: createForm.name,
         department: createForm.department,
         channels,
-        messageTemplateId: createForm.messageTemplateId,
         notes: createForm.notes,
+        ...buildMessagePayload(createForm),
       };
 
       if (createForm.addFirstPerson && createForm.member && createForm.date) {
@@ -308,8 +341,8 @@ export default function Schedule() {
         name: settingsForm.name,
         department: settingsForm.department,
         channels,
-        messageTemplateId: settingsForm.messageTemplateId,
         notes: settingsForm.notes,
+        ...buildMessagePayload(settingsForm),
       };
 
       await api(`/schedules/${id}`, {
@@ -420,8 +453,7 @@ export default function Schedule() {
             <h1>{detail.name}</h1>
             <p className="muted">
               {detail.department?.name} · {formatChannelsLabel(scheduleChannels(detail))} ·{' '}
-              {detail.messageTemplate ? templateDisplayTitle(detail.messageTemplate) : '—'} ·{' '}
-              {detail.entries?.length || 0} people
+              {scheduleMessageLabel(detail)} · {detail.entries?.length || 0} people
             </p>
           </div>
           <button type="button" className="btn danger-ghost" onClick={() => removeSchedule(id)}>
@@ -464,29 +496,25 @@ export default function Schedule() {
                 setSettingsForm({ ...settingsForm, sendSms, sendWhatsApp })
               }
             />
-            <label>
-              Message template
-              <select
-                value={settingsForm?.messageTemplateId || ''}
-                onChange={(e) =>
-                  setSettingsForm({ ...settingsForm, messageTemplateId: e.target.value })
-                }
-                required
-              >
-                {scheduleTemplates.map((t) => (
-                  <option key={t._id} value={t._id}>
-                    {templateDisplayTitle(t)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="muted small">
-              One template works on any channel. Manage wording in{' '}
-              <Link to="/messages" className="linkish">
-                Message Hub
-              </Link>
-              .
-            </p>
+            <ScheduleMessageEditor
+              mode={settingsForm?.messageMode || 'template'}
+              onModeChange={(messageMode) =>
+                setSettingsForm((prev) => ({ ...prev, messageMode }))
+              }
+              templateId={settingsForm?.messageTemplateId || ''}
+              onTemplateIdChange={(messageTemplateId) =>
+                setSettingsForm((prev) => ({ ...prev, messageTemplateId }))
+              }
+              messageBody={settingsForm?.messageBody || ''}
+              onMessageBodyChange={(messageBody) =>
+                setSettingsForm((prev) => ({ ...prev, messageBody }))
+              }
+              templates={scheduleTemplates}
+              scheduleName={settingsForm?.name || ''}
+              departmentName={
+                departments.find((d) => d._id === settingsForm?.department)?.name || ''
+              }
+            />
             <label>
               Notes
               <input
@@ -746,32 +774,25 @@ export default function Schedule() {
               setCreateForm({ ...createForm, sendSms, sendWhatsApp })
             }
           />
-          <label>
-            Message template
-            <select
-              value={createForm.messageTemplateId}
-              onChange={(e) =>
-                setCreateForm({ ...createForm, messageTemplateId: e.target.value })
-              }
-              required
-            >
-              <option value="" disabled>
-                Select template
-              </option>
-              {scheduleTemplates.map((t) => (
-                <option key={t._id} value={t._id}>
-                  {templateDisplayTitle(t)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="muted small">
-            Templates work on SMS and WhatsApp. Manage them in{' '}
-            <Link to="/messages" className="linkish">
-              Message Hub
-            </Link>
-            .
-          </p>
+          <ScheduleMessageEditor
+            mode={createForm.messageMode}
+            onModeChange={(messageMode) =>
+              setCreateForm((prev) => ({ ...prev, messageMode }))
+            }
+            templateId={createForm.messageTemplateId}
+            onTemplateIdChange={(messageTemplateId) =>
+              setCreateForm((prev) => ({ ...prev, messageTemplateId }))
+            }
+            messageBody={createForm.messageBody}
+            onMessageBodyChange={(messageBody) =>
+              setCreateForm((prev) => ({ ...prev, messageBody }))
+            }
+            templates={scheduleTemplates}
+            scheduleName={createForm.name}
+            departmentName={
+              departments.find((d) => d._id === createForm.department)?.name || ''
+            }
+          />
           <label>
             Notes
             <input
@@ -921,8 +942,7 @@ export default function Schedule() {
                       : ''}
                   </span>
                   <span className="muted small">
-                    Template:{' '}
-                    {s.messageTemplate ? templateDisplayTitle(s.messageTemplate) : '—'}
+                    Message: {scheduleMessageLabel(s)}
                   </span>
                 </Link>
               </li>
