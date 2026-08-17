@@ -8,7 +8,7 @@ import Member from '../models/Member.js';
 import MessageTemplate from '../models/MessageTemplate.js';
 import { protect } from '../middleware/auth.js';
 import { ensureAssignmentLabel } from '../utils/assignmentLabels.js';
-import { findMemberByEmailOrName } from '../utils/memberLinks.js';
+import { findMemberByEmailOrName, normalizeEmail } from '../utils/memberLinks.js';
 import { friendlyErrorMessage } from '../utils/errors.js';
 
 const router = express.Router();
@@ -312,7 +312,7 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
       const line = i + 2;
       try {
         const date = parseDate(row.date || row.Date);
-        const memberEmail = (row.email || row.Email || '').trim().toLowerCase();
+        const memberEmail = normalizeEmail(row.email || row.Email);
         const memberName = (row.member || row.Member || row.name || row.Name || '').trim();
         const roleLabel =
           row.assignment || row.Assignment || row.role || row.Role || row.roleLabel || 'Serve';
@@ -336,12 +336,13 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
         let member = await findMemberByEmailOrName(memberEmail, memberName);
         if (!member) {
           const phone = String(row.phone || row.Phone || '').trim();
-          member = await Member.create({
+          const memberData = {
             name: memberName,
-            email: memberEmail || null,
             department: schedule.department._id,
             phone,
-          });
+          };
+          if (memberEmail) memberData.email = memberEmail;
+          member = await Member.create(memberData);
           if (!phone && !warnedMemberIds.has(String(member._id))) {
             warnedMemberIds.add(String(member._id));
             warnings.push(

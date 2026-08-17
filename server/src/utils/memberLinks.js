@@ -7,9 +7,9 @@ function emptyToNull(value) {
   return value;
 }
 
-function normalizeEmail(value) {
+export function normalizeEmail(value) {
   const email = emptyToNull(typeof value === 'string' ? value.trim().toLowerCase() : value);
-  return email || null;
+  return email || undefined;
 }
 
 export function escapeMemberName(name) {
