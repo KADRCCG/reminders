@@ -11,10 +11,15 @@ import scheduleRoutes from './routes/schedules.js';
 import assignmentLabelRoutes from './routes/assignmentLabels.js';
 import reminderRoutes from './routes/reminders.js';
 import celebrationRoutes from './routes/celebrations.js';
+import cronRoutes from './routes/cron.js';
 import settingsRoutes from './routes/settings.js';
 import messageTemplateRoutes from './routes/messageTemplates.js';
-import { processReminders } from './services/reminderService.js';
-import { processCelebrations } from './services/celebrationService.js';
+import {
+  getCronExpression,
+  getCronTimezone,
+  runDailyJobs,
+  runStartupCatchUp,
+} from './services/dailyJobService.js';
 import { backfillAssignmentLabels } from './utils/assignmentLabels.js';
 import { ensureAdminFromEnv } from './utils/ensureAdmin.js';
 import { ensureMessageTemplates, migrateUnifiedTemplates, syncSystemTemplateDescriptions } from './utils/messageTemplates.js';
@@ -71,6 +76,7 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/assignment-labels', assignmentLabelRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/celebrations', celebrationRoutes);
+app.use('/api/cron', cronRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/message-templates', messageTemplateRoutes);
 
@@ -79,7 +85,8 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: err.message || 'Server error' });
 });
 
-const cronExpr = process.env.REMINDER_CRON || '0 8 * * *';
+const cronExpr = getCronExpression();
+const cronTimezone = getCronTimezone();
 
 async function start() {
   const mongoUri = process.env.MONGODB_URI;
@@ -108,24 +115,29 @@ async function start() {
     console.error('[startup] Assignment migration failed (server will still start):', err.message);
   }
   await backfillAssignmentLabels();
+  await runStartupCatchUp();
 
   if (cron.validate(cronExpr)) {
-    cron.schedule(cronExpr, async () => {
-      console.log(`[cron] Running daily jobs at ${new Date().toISOString()}`);
-      try {
-        const reminderResults = await processReminders();
-        console.log('[cron] Reminder results:', reminderResults);
-      } catch (err) {
-        console.error('[cron] Reminder job failed:', err.message);
-      }
-      try {
-        const celebrationResults = await processCelebrations();
-        console.log('[cron] Celebration results:', celebrationResults);
-      } catch (err) {
-        console.error('[cron] Celebration job failed:', err.message);
-      }
-    });
-    console.log(`Daily cron scheduled: ${cronExpr}`);
+    cron.schedule(
+      cronExpr,
+      async () => {
+        try {
+          const results = await runDailyJobs({ source: 'in-process-cron' });
+          if (!results.skipped) {
+            console.log('[cron] Daily jobs finished');
+          }
+        } catch (err) {
+          console.error('[cron] Daily jobs failed:', err.message);
+        }
+      },
+      { timezone: cronTimezone }
+    );
+    console.log(`Daily cron scheduled: ${cronExpr} (${cronTimezone})`);
+    if (process.env.RENDER && !process.env.CRON_SECRET) {
+      console.warn(
+        '[cron] Render free tier sleeps when idle — in-process cron may not fire. Set CRON_SECRET and ping POST /api/cron/daily from an external scheduler (see README).'
+      );
+    }
   } else {
     console.warn(`Invalid REMINDER_CRON "${cronExpr}" — cron not started`);
   }
