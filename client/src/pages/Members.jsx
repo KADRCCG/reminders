@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 
 const empty = {
@@ -108,6 +108,20 @@ export default function Members() {
   const [file, setFile] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+
+  const visibleMembers = useMemo(() => {
+    const query = memberSearch.trim().toLowerCase();
+    if (!query) return members;
+
+    return members.filter((m) => {
+      const haystack = [m.name, m.email, m.phone, m.department?.name, m.spouse?.name]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [members, memberSearch]);
 
   async function load() {
     const [memberData, deptData] = await Promise.all([api('/members'), api('/departments')]);
@@ -225,8 +239,8 @@ export default function Members() {
       {message && <p className="success">{message}</p>}
       {error && !editingId && <p className="error">{error}</p>}
 
-      <section className="panel-grid">
-        <div className="stack">
+      <section className="members-layout">
+        <div className="panel-grid members-forms-grid">
           <form className="panel stack" onSubmit={onUpload}>
             <h2>Bulk upload</h2>
             <p className="muted small">
@@ -246,97 +260,116 @@ export default function Members() {
             </button>
           </form>
 
-        <form className="panel stack" onSubmit={onSubmit}>
-          <h2>{editingId ? 'Edit person' : 'Add person'}</h2>
-          <label>
-            Name
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
+          <form className="panel stack" onSubmit={onSubmit}>
+            <h2>{editingId ? 'Edit person' : 'Add person'}</h2>
+            <label>
+              Name
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Email <span className="muted small">(optional)</span>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </label>
+            <label>
+              Phone <span className="muted small">(for SMS / WhatsApp)</span>
+              <input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="087... or +353 87..."
+                required
+              />
+            </label>
+            <label>
+              Department <span className="muted small">(optional)</span>
+              <select
+                value={form.department}
+                onChange={(e) => setForm({ ...form, department: e.target.value })}
+              >
+                <option value="">No department</option>
+                {departments.map((d) => (
+                  <option key={d._id} value={d._id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <MonthDayYearFields
+              legend="Birthday"
+              prefix="birthday"
+              form={form}
+              setForm={setForm}
             />
-          </label>
-          <label>
-            Email <span className="muted small">(optional)</span>
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+
+            <label>
+              Married to (another member)
+              <select
+                value={form.spouse}
+                onChange={(e) => setForm({ ...form, spouse: e.target.value })}
+              >
+                <option value="">Not married / not linked</option>
+                {spouseOptions.map((m) => (
+                  <option key={m._id} value={m._id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <MonthDayYearFields
+              legend="Wedding anniversary"
+              prefix="anniversary"
+              form={form}
+              setForm={setForm}
+              disabled={!form.spouse}
             />
-          </label>
-          <label>
-            Phone <span className="muted small">(for SMS / WhatsApp)</span>
-            <input
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="087... or +353 87..."
-              required
-            />
-          </label>
-          <label>
-            Department <span className="muted small">(optional)</span>
-            <select
-              value={form.department}
-              onChange={(e) => setForm({ ...form, department: e.target.value })}
-            >
-              <option value="">No department</option>
-              {departments.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
 
-          <MonthDayYearFields
-            legend="Birthday"
-            prefix="birthday"
-            form={form}
-            setForm={setForm}
-          />
-
-          <label>
-            Married to (another member)
-            <select
-              value={form.spouse}
-              onChange={(e) => setForm({ ...form, spouse: e.target.value })}
-            >
-              <option value="">Not married / not linked</option>
-              {spouseOptions.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <MonthDayYearFields
-            legend="Wedding anniversary"
-            prefix="anniversary"
-            form={form}
-            setForm={setForm}
-            disabled={!form.spouse}
-          />
-
-          {error && <p className="error">{error}</p>}
-          <div className="row-actions">
-            <button className="btn primary" type="submit">
-              {editingId ? 'Save changes' : 'Save person'}
-            </button>
-            {editingId && (
-              <button type="button" className="linkish" onClick={resetForm}>
-                Cancel edit
+            {error && <p className="error">{error}</p>}
+            <div className="row-actions">
+              <button className="btn primary" type="submit">
+                {editingId ? 'Save changes' : 'Save person'}
               </button>
-            )}
-          </div>
-        </form>
+              {editingId && (
+                <button type="button" className="linkish" onClick={resetForm}>
+                  Cancel edit
+                </button>
+              )}
+            </div>
+          </form>
         </div>
 
         <div className="panel directory-panel">
           <h2>Directory</h2>
 
+          <label className="directory-search">
+            Find a person
+            <input
+              type="search"
+              placeholder="Search by name, phone, email, department, or spouse…"
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+            />
+          </label>
+
+          {memberSearch && (
+            <p className="muted small">
+              Showing {visibleMembers.length} of {members.length} people ·{' '}
+              <button type="button" className="linkish" onClick={() => setMemberSearch('')}>
+                Clear
+              </button>
+            </p>
+          )}
+
           <div className="data-list">
-            {members.map((m) => (
+            {visibleMembers.map((m) => (
               <article className="data-card" key={m._id}>
                 <div className="data-card-top">
                   <div>
@@ -354,6 +387,10 @@ export default function Members() {
                   </div>
                 </div>
                 <dl className="meta-grid">
+                  <div>
+                    <dt>Phone</dt>
+                    <dd>{m.phone || '—'}</dd>
+                  </div>
                   <div>
                     <dt>Department</dt>
                     <dd>{m.department?.name || '—'}</dd>
@@ -387,6 +424,9 @@ export default function Members() {
                 </dl>
               </article>
             ))}
+            {!visibleMembers.length && members.length > 0 && (
+              <p className="empty-state">No people match your search.</p>
+            )}
             {!members.length && <p className="empty-state">No people yet.</p>}
           </div>
 
@@ -395,6 +435,7 @@ export default function Members() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Phone</th>
                   <th>Department</th>
                   <th>Birthday</th>
                   <th>Spouse</th>
@@ -403,12 +444,13 @@ export default function Members() {
                 </tr>
               </thead>
               <tbody>
-                {members.map((m) => (
+                {visibleMembers.map((m) => (
                   <tr key={m._id}>
                     <td>
                       <div className="cell-title">{m.name}</div>
-                      <div className="muted small">{m.email || '—'}</div>
+                      {m.email && <div className="muted small">{m.email}</div>}
                     </td>
+                    <td>{m.phone || '—'}</td>
                     <td>{m.department?.name || '—'}</td>
                     <td>
                       {formatMonthDayYear(
@@ -443,9 +485,16 @@ export default function Members() {
                     </td>
                   </tr>
                 ))}
+                {!visibleMembers.length && members.length > 0 && (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      No people match your search.
+                    </td>
+                  </tr>
+                )}
                 {!members.length && (
                   <tr>
-                    <td colSpan={6} className="muted">
+                    <td colSpan={7} className="muted">
                       No people yet.
                     </td>
                   </tr>
