@@ -315,8 +315,18 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
           row.assignment || row.Assignment || row.role || row.Role || row.roleLabel || 'Serve';
         const notes = row.notes || row.Notes || '';
 
-        if (!date || (!memberEmail && !memberName)) {
-          errors.push(`Line ${line}: need date and member email or name`);
+        if (!memberEmail && !memberName) {
+          errors.push(`Row ${line}: Missing person — each row needs a name or email.`);
+          continue;
+        }
+
+        if (!date) {
+          const rawDate = row.date || row.Date || '';
+          errors.push(
+            rawDate
+              ? `Row ${line}: “${rawDate}” is not a valid date — use YYYY-MM-DD (e.g. 2026-08-15).`
+              : `Row ${line}: Missing date — each row needs a service date.`
+          );
           continue;
         }
 
@@ -329,7 +339,9 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
         }
         if (!member) {
           if (!memberEmail) {
-            errors.push(`Line ${line}: member not found`);
+            errors.push(
+              `Row ${line}: “${memberName}” is not in People — add them under People first, or include their email in the CSV.`
+            );
             continue;
           }
           member = await Member.create({
@@ -348,7 +360,7 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
         });
         created.push(entry._id);
       } catch (err) {
-        errors.push(`Line ${line}: ${friendlyErrorMessage(err)}`);
+        errors.push(`Row ${line}: ${friendlyErrorMessage(err)}`);
       }
     }
 

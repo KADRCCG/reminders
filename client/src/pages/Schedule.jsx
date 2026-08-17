@@ -181,6 +181,7 @@ export default function Schedule() {
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [settingsForm, setSettingsForm] = useState(null);
   const [file, setFile] = useState(null);
+  const [uploadIssues, setUploadIssues] = useState([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [scheduleSearch, setScheduleSearch] = useState('');
@@ -261,6 +262,7 @@ export default function Schedule() {
 
   useEffect(() => {
     setError('');
+    setUploadIssues([]);
     if (id) {
       loadDetail(id).catch((err) => setError(err.message));
     } else {
@@ -425,15 +427,31 @@ export default function Schedule() {
     }
     setError('');
     setMessage('');
+    setUploadIssues([]);
     try {
       const body = new FormData();
       body.append('file', file);
       const result = await api(`/schedules/${id}/entries/upload`, { method: 'POST', body });
-      setMessage(
-        `Added ${result.created} row(s).${
-          result.errors?.length ? ` ${result.errors.length} skipped.` : ''
-        }`
-      );
+      const created = result.created || 0;
+      const issues = result.errors || [];
+
+      if (created > 0) {
+        setMessage(
+          issues.length
+            ? `Added ${created} ${created === 1 ? 'person' : 'people'}. ${issues.length} ${issues.length === 1 ? 'row could' : 'rows could'} not be imported — see details below.`
+            : `Added ${created} ${created === 1 ? 'person' : 'people'} to this schedule.`
+        );
+      } else if (issues.length) {
+        setError(
+          issues.length === 1
+            ? 'Nothing was added — 1 row had a problem.'
+            : `Nothing was added — all ${issues.length} rows had problems.`
+        );
+      } else {
+        setError('The file had no rows to import. Check your CSV has a header row and at least one data row.');
+      }
+
+      if (issues.length) setUploadIssues(issues);
       setFile(null);
       e.target.reset();
       await loadDetail(id);
@@ -630,6 +648,20 @@ export default function Schedule() {
             <button className="btn primary" type="submit">
               Upload to this schedule
             </button>
+
+            {uploadIssues.length > 0 && (
+              <div className="upload-issues">
+                <p className="upload-issues-title">Import details</p>
+                <ul className="upload-issues-list">
+                  {uploadIssues.slice(0, 20).map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+                {uploadIssues.length > 20 && (
+                  <p className="muted small">…and {uploadIssues.length - 20} more rows with problems.</p>
+                )}
+              </div>
+            )}
           </form>
         </section>
 
