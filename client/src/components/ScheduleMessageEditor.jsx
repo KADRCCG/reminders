@@ -1,6 +1,8 @@
 import { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import PlaceholderChips from './PlaceholderChips';
 import { templateDisplayTitle } from '../utils/templateDisplay';
+import { insertAtCursor } from '../utils/insertAtCursor';
 import {
   renderTemplate,
   SCHEDULE_MESSAGE_PLACEHOLDERS,
@@ -66,22 +68,6 @@ export default function ScheduleMessageEditor({
     if (tpl?.body) onMessageBodyChange(tpl.body);
   }
 
-  function insertPlaceholder(key) {
-    const token = `{{${key}}}`;
-    const el = textareaRef.current;
-    const start = el?.selectionStart ?? messageBody.length;
-    const end = el?.selectionEnd ?? messageBody.length;
-    const next = `${messageBody.slice(0, start)}${token}${messageBody.slice(end)}`;
-    onMessageBodyChange(next);
-
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      const pos = start + token.length;
-      el.setSelectionRange(pos, pos);
-    });
-  }
-
   return (
     <div className="schedule-message-editor stack">
       <label>
@@ -115,21 +101,12 @@ export default function ScheduleMessageEditor({
         />
       </label>
 
-      <div className="placeholder-chips-wrap">
-        <p className="muted small">Click to insert:</p>
-        <div className="placeholder-chips">
-          {SCHEDULE_MESSAGE_PLACEHOLDERS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              className="placeholder-chip"
-              onClick={() => insertPlaceholder(key)}
-            >
-              {`{{${key}}}`}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PlaceholderChips
+        placeholders={SCHEDULE_MESSAGE_PLACEHOLDERS}
+        onInsert={(key) =>
+          insertAtCursor(textareaRef, messageBody, `{{${key}}}`, onMessageBodyChange)
+        }
+      />
 
       <p className="muted small">
         Changes here apply only to this schedule —{' '}

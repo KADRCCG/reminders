@@ -1,6 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import PlaceholderChips from '../components/PlaceholderChips';
 import { templateDisplaySubtitle, templateDisplayTitle } from '../utils/templateDisplay';
+import { insertAtCursor } from '../utils/insertAtCursor';
+
+const COMMON_PLACEHOLDERS = [
+  'name',
+  'names',
+  'schedule',
+  'department',
+  'date',
+  'date_label',
+  'assignment',
+  'notes_line',
+  'years_line',
+];
 
 export default function MessageHub() {
   const [templates, setTemplates] = useState([]);
@@ -16,6 +30,8 @@ export default function MessageHub() {
     description: '',
     body: '',
   });
+  const createBodyRef = useRef(null);
+  const editBodyRef = useRef(null);
 
   const selected = useMemo(
     () => templates.find((t) => t.key === selectedKey) || null,
@@ -124,6 +140,18 @@ export default function MessageHub() {
     }
   }
 
+  function insertCreatePlaceholder(key) {
+    insertAtCursor(createBodyRef, createForm.body, `{{${key}}}`, (body) =>
+      setCreateForm((prev) => ({ ...prev, body }))
+    );
+  }
+
+  function insertEditPlaceholder(key) {
+    insertAtCursor(editBodyRef, draft.body, `{{${key}}}`, (body) =>
+      setDraft((prev) => ({ ...prev, body }))
+    );
+  }
+
   return (
     <div className="page">
       <header className="page-head">
@@ -162,6 +190,7 @@ export default function MessageHub() {
           <label>
             Message body
             <textarea
+              ref={createBodyRef}
               rows={6}
               value={createForm.body}
               onChange={(e) => setCreateForm({ ...createForm, body: e.target.value })}
@@ -169,9 +198,7 @@ export default function MessageHub() {
               required
             />
           </label>
-          <p className="muted small">
-            Use {'{{placeholders}}'} in the body. Schedule templates often use {'{{name}} {{schedule}} {{department}} {{date}} {{assignment}} {{notes_line}}'}.
-          </p>
+          <PlaceholderChips placeholders={COMMON_PLACEHOLDERS} onInsert={insertCreatePlaceholder} />
           <button className="btn primary" type="submit" disabled={busy}>
             {busy ? 'Creating…' : 'Create template'}
           </button>
@@ -226,6 +253,7 @@ export default function MessageHub() {
             <label>
               Message body
               <textarea
+                ref={editBodyRef}
                 rows={8}
                 value={draft.body}
                 onChange={(e) => setDraft({ ...draft, body: e.target.value })}
@@ -233,10 +261,10 @@ export default function MessageHub() {
               />
             </label>
 
-            <p className="muted small">
-              Placeholders:{' '}
-              {(selected.placeholders || []).map((p) => `{{${p}}}`).join(' · ') || '—'}
-            </p>
+            <PlaceholderChips
+              placeholders={selected.placeholders?.length ? selected.placeholders : COMMON_PLACEHOLDERS}
+              onInsert={insertEditPlaceholder}
+            />
 
             <div className="row-actions">
               <button className="btn primary" type="submit" disabled={busy}>
