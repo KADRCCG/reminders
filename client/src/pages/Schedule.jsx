@@ -182,6 +182,7 @@ export default function Schedule() {
   const [settingsForm, setSettingsForm] = useState(null);
   const [file, setFile] = useState(null);
   const [uploadIssues, setUploadIssues] = useState([]);
+  const [uploadWarnings, setUploadWarnings] = useState([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [scheduleSearch, setScheduleSearch] = useState('');
@@ -263,6 +264,7 @@ export default function Schedule() {
   useEffect(() => {
     setError('');
     setUploadIssues([]);
+    setUploadWarnings([]);
     if (id) {
       loadDetail(id).catch((err) => setError(err.message));
     } else {
@@ -428,19 +430,23 @@ export default function Schedule() {
     setError('');
     setMessage('');
     setUploadIssues([]);
+    setUploadWarnings([]);
     try {
       const body = new FormData();
       body.append('file', file);
       const result = await api(`/schedules/${id}/entries/upload`, { method: 'POST', body });
       const created = result.created || 0;
       const issues = result.errors || [];
+      const warnings = result.warnings || [];
 
       if (created > 0) {
-        setMessage(
-          issues.length
-            ? `Added ${created} ${created === 1 ? 'person' : 'people'}. ${issues.length} ${issues.length === 1 ? 'row could' : 'rows could'} not be imported — see details below.`
-            : `Added ${created} ${created === 1 ? 'person' : 'people'} to this schedule.`
-        );
+        let summary = issues.length
+          ? `Added ${created} ${created === 1 ? 'person' : 'people'}. ${issues.length} ${issues.length === 1 ? 'row could' : 'rows could'} not be imported — see details below.`
+          : `Added ${created} ${created === 1 ? 'person' : 'people'} to this schedule.`;
+        if (warnings.length) {
+          summary += ` ${warnings.length} ${warnings.length === 1 ? 'person needs' : 'people need'} a phone number before reminders can be sent.`;
+        }
+        setMessage(summary);
       } else if (issues.length) {
         setError(
           issues.length === 1
@@ -452,6 +458,7 @@ export default function Schedule() {
       }
 
       if (issues.length) setUploadIssues(issues);
+      if (warnings.length) setUploadWarnings(warnings);
       setFile(null);
       e.target.reset();
       await loadDetail(id);
@@ -636,7 +643,9 @@ export default function Schedule() {
 
           <form className="panel stack" onSubmit={onUpload}>
             <h2>Upload CSV</h2>
-            <p className="muted small">Columns: date, member, email, assignment, notes</p>
+            <p className="muted small">
+              Columns: date, member, assignment, notes. Optional: email, phone (recommended for new people).
+            </p>
             <label className="file-input">
               CSV file
               <input
@@ -648,6 +657,22 @@ export default function Schedule() {
             <button className="btn primary" type="submit">
               Upload to this schedule
             </button>
+
+            {uploadWarnings.length > 0 && (
+              <div className="upload-warnings">
+                <p className="upload-warnings-title">Missing phone numbers</p>
+                <ul className="upload-warnings-list">
+                  {uploadWarnings.slice(0, 20).map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+                {uploadWarnings.length > 20 && (
+                  <p className="muted small">
+                    …and {uploadWarnings.length - 20} more people without phone numbers.
+                  </p>
+                )}
+              </div>
+            )}
 
             {uploadIssues.length > 0 && (
               <div className="upload-issues">

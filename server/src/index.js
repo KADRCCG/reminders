@@ -24,6 +24,7 @@ import { backfillAssignmentLabels } from './utils/assignmentLabels.js';
 import { ensureAdminFromEnv } from './utils/ensureAdmin.js';
 import { ensureMessageTemplates, migrateUnifiedTemplates, syncSystemTemplateDescriptions } from './utils/messageTemplates.js';
 import { migrateAssignmentsToSchedules } from './utils/migrateSchedules.js';
+import Member from './models/Member.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -102,6 +103,7 @@ async function start() {
   }
 
   await connectDB(mongoUri);
+  await Member.updateMany({ email: '' }, { $set: { email: null } });
   await ensureAdminFromEnv();
   await ensureMessageTemplates();
   await syncSystemTemplateDescriptions();

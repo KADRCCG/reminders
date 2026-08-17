@@ -230,7 +230,7 @@ export default function Members() {
           <form className="panel stack" onSubmit={onUpload}>
             <h2>Bulk upload</h2>
             <p className="muted small">
-              Columns: name, email, phone, department, birthdayMonth, birthdayDay,
+              Columns: name, phone, email (optional), department, birthdayMonth, birthdayDay,
               birthdayYear, spouseEmail, anniversaryMonth, anniversaryDay, anniversaryYear
             </p>
             <label className="file-input">
@@ -257,12 +257,11 @@ export default function Members() {
             />
           </label>
           <label>
-            Email
+            Email <span className="muted small">(optional)</span>
             <input
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              required
             />
           </label>
           <label>
@@ -342,7 +341,7 @@ export default function Members() {
                 <div className="data-card-top">
                   <div>
                     <h3>{m.name}</h3>
-                    <p className="muted small">{m.email}</p>
+                    {m.email && <p className="muted small">{m.email}</p>}
                     {m.phone && <p className="muted small">{m.phone}</p>}
                   </div>
                   <div className="data-card-actions">
@@ -408,7 +407,7 @@ export default function Members() {
                   <tr key={m._id}>
                     <td>
                       <div className="cell-title">{m.name}</div>
-                      <div className="muted small">{m.email}</div>
+                      <div className="muted small">{m.email || '—'}</div>
                     </td>
                     <td>{m.department?.name || '—'}</td>
                     <td>

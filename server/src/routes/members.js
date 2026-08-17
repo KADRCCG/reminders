@@ -6,6 +6,7 @@ import Department from '../models/Department.js';
 import { protect } from '../middleware/auth.js';
 import {
   clearSpouseOnDelete,
+  findMemberByEmailOrName,
   normalizeMemberPayload,
   syncSpouseLink,
 } from '../utils/memberLinks.js';
@@ -54,8 +55,8 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const payload = normalizeMemberPayload(req.body);
-    if (!payload.name || !payload.email) {
-      return res.status(400).json({ message: 'Name and email are required' });
+    if (!payload.name) {
+      return res.status(400).json({ message: 'Name is required' });
     }
 
     const spouseId = payload.spouse;
@@ -108,8 +109,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const departmentName = pick(row, ['department', 'Department']);
         const spouseEmail = pick(row, ['spouseEmail', 'SpouseEmail', 'spouse', 'Spouse']).toLowerCase();
 
-        if (!name || !email || !phone) {
-          errors.push(`Line ${line}: name, email, and phone are required`);
+        if (!name) {
+          errors.push(`Row ${line}: name is required`);
           continue;
         }
 
@@ -130,10 +131,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
           weddingAnniversary: pick(row, ['anniversary', 'Anniversary', 'weddingAnniversary']),
         });
 
-        let member = await Member.findOne({ email });
+        let member = await findMemberByEmailOrName(email, name);
         if (member) {
           const previousSpouseId = member.spouse;
           member.name = payload.name;
+          if (payload.email) member.email = payload.email;
           member.phone = payload.phone;
           member.department = payload.department;
           member.birthdayMonth = payload.birthdayMonth;

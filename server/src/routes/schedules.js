@@ -8,6 +8,7 @@ import Member from '../models/Member.js';
 import MessageTemplate from '../models/MessageTemplate.js';
 import { protect } from '../middleware/auth.js';
 import { ensureAssignmentLabel } from '../utils/assignmentLabels.js';
+import { findMemberByEmailOrName } from '../utils/memberLinks.js';
 import { friendlyErrorMessage } from '../utils/errors.js';
 
 const router = express.Router();
@@ -303,20 +304,22 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
 
     const created = [];
     const errors = [];
+    const warnings = [];
+    const warnedMemberIds = new Set();
 
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
       const line = i + 2;
       try {
         const date = parseDate(row.date || row.Date);
-        const memberEmail = (row.email || row.Email || '').toLowerCase();
-        const memberName = row.member || row.Member || row.name || row.Name;
+        const memberEmail = (row.email || row.Email || '').trim().toLowerCase();
+        const memberName = (row.member || row.Member || row.name || row.Name || '').trim();
         const roleLabel =
           row.assignment || row.Assignment || row.role || row.Role || row.roleLabel || 'Serve';
         const notes = row.notes || row.Notes || '';
 
-        if (!memberEmail && !memberName) {
-          errors.push(`Row ${line}: Missing person — each row needs a name or email.`);
+        if (!memberName) {
+          errors.push(`Row ${line}: Missing person — each row needs a name in the member column.`);
           continue;
         }
 
@@ -330,26 +333,21 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
           continue;
         }
 
-        let member = null;
-        if (memberEmail) member = await Member.findOne({ email: memberEmail });
-        if (!member && memberName) {
-          member = await Member.findOne({
-            name: new RegExp(`^${memberName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-          });
-        }
+        let member = await findMemberByEmailOrName(memberEmail, memberName);
         if (!member) {
-          if (!memberEmail) {
-            errors.push(
-              `Row ${line}: “${memberName}” is not in People — add them under People first, or include their email in the CSV.`
-            );
-            continue;
-          }
+          const phone = String(row.phone || row.Phone || '').trim();
           member = await Member.create({
-            name: memberName || memberEmail.split('@')[0],
-            email: memberEmail,
+            name: memberName,
+            email: memberEmail || null,
             department: schedule.department._id,
-            phone: row.phone || row.Phone || '',
+            phone,
           });
+          if (!phone && !warnedMemberIds.has(String(member._id))) {
+            warnedMemberIds.add(String(member._id));
+            warnings.push(
+              `Row ${line}: ${memberName} was added to People with no phone number — add one under People so reminders can be sent.`
+            );
+          }
         }
 
         const entry = await createEntry(schedule._id, {
@@ -368,7 +366,7 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
       .populate('member', 'name email phone')
       .sort({ date: 1 });
 
-    res.status(201).json({ created: entries.length, errors, entries });
+    res.status(201).json({ created: entries.length, errors, warnings, entries });
   } catch (err) {
     res.status(400).json({ message: friendlyErrorMessage(err) });
   }

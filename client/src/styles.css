@@ -1066,6 +1066,30 @@ button.btn {
   color: #5c2a2a;
 }
 
+.upload-warnings {
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid #e8d4a8;
+  background: #fffbf0;
+}
+
+.upload-warnings-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #7a5a12;
+}
+
+.upload-warnings-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #5c4a1a;
+}
+
 .channel-dropdown-wrap {
   position: relative;
   display: flex;

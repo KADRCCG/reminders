@@ -7,12 +7,35 @@ function emptyToNull(value) {
   return value;
 }
 
+function normalizeEmail(value) {
+  const email = emptyToNull(typeof value === 'string' ? value.trim().toLowerCase() : value);
+  return email || null;
+}
+
+export function escapeMemberName(name) {
+  return String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export async function findMemberByEmailOrName(email, name) {
+  const normalizedEmail = normalizeEmail(email);
+  if (normalizedEmail) {
+    const byEmail = await Member.findOne({ email: normalizedEmail });
+    if (byEmail) return byEmail;
+  }
+  if (name) {
+    return Member.findOne({
+      name: new RegExp(`^${escapeMemberName(name)}$`, 'i'),
+    });
+  }
+  return null;
+}
+
 export function normalizeMemberPayload(body) {
   const birthday = parseBirthdayPayload(body);
   const anniversary = parseAnniversaryPayload(body);
   return {
     name: body.name,
-    email: body.email,
+    email: normalizeEmail(body.email),
     phone: body.phone ?? '',
     department: emptyToNull(body.department),
     ...birthday,

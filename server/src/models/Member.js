@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const memberSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    email: { type: String, lowercase: true, trim: true, default: null },
     phone: { type: String, default: '', trim: true },
     department: {
       type: mongoose.Schema.Types.ObjectId,
@@ -25,5 +25,7 @@ const memberSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+memberSchema.index({ email: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model('Member', memberSchema);
