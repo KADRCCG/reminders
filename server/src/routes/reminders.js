@@ -21,7 +21,7 @@ router.get('/dashboard', async (_req, res) => {
       .populate({
         path: 'scheduleEntry',
         populate: [
-          { path: 'schedule', select: 'name', populate: { path: 'department', select: 'name' } },
+          { path: 'schedule', select: 'name', populate: { path: 'departments', select: 'name' } },
         ],
       }),
   ]);
@@ -46,7 +46,7 @@ router.get('/logs', async (_req, res) => {
     .populate({
       path: 'scheduleEntry',
       populate: [
-        { path: 'schedule', select: 'name', populate: { path: 'department', select: 'name' } },
+        { path: 'schedule', select: 'name', populate: { path: 'departments', select: 'name' } },
       ],
     });
   res.json(logs);

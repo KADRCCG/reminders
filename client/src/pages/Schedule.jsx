@@ -3,6 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { templateDisplayTitle } from '../utils/templateDisplay';
 import ScheduleMessageEditor from '../components/ScheduleMessageEditor';
+import ScheduleReminderRules from '../components/ScheduleReminderRules';
+import ScheduleDepartmentsPicker from '../components/ScheduleDepartmentsPicker';
+import { DEFAULT_REMINDER_DAYS, formatReminderRulesLabel, reminderRulesFromSchedule } from '../utils/reminderRules';
+import {
+  scheduleDepartmentIds,
+  scheduleDepartmentsLabel,
+} from '../utils/scheduleDepartments';
+import { memberMatchesScheduleDepartments } from '../utils/memberDepartments';
 
 const NEW_ASSIGNMENT = '__new__';
 
@@ -102,6 +110,10 @@ function scheduleMessageLabel(schedule) {
   return '—';
 }
 
+function scheduleDepartmentLabel(schedule, allDepartments = []) {
+  return scheduleDepartmentsLabel(schedule, allDepartments);
+}
+
 function scheduleFormFromData(schedule, templates) {
   const channels = scheduleChannels(schedule);
   const mt = schedule?.messageTemplate;
@@ -113,25 +125,28 @@ function scheduleFormFromData(schedule, templates) {
 
   return {
     name: schedule.name,
-    department: schedule.department?._id || schedule.department,
+    departments: scheduleDepartmentIds(schedule),
     sendSms: channels.includes('sms'),
     sendWhatsApp: channels.includes('whatsapp'),
     messageMode,
     messageTemplateId: templateId ? String(templateId) : String(defaultScheduleTemplate(templates)?._id || ''),
     messageBody: storedBody || template?.body || '',
     notes: schedule.notes || '',
+    ...reminderRulesFromSchedule(schedule),
   };
 }
 
 const emptyCreate = {
   name: '',
-  department: '',
+  departments: [],
   sendSms: true,
   sendWhatsApp: false,
   messageMode: 'template',
   messageTemplateId: '',
   messageBody: '',
   notes: '',
+  reminderDaysBefore: DEFAULT_REMINDER_DAYS,
+  reminderWeekdays: [],
   addFirstPerson: false,
   member: '',
   date: '',
@@ -187,6 +202,9 @@ export default function Schedule() {
   const [error, setError] = useState('');
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [scheduleDepartment, setScheduleDepartment] = useState('');
+  const entryFormRef = useRef(null);
+  const settingsFormRef = useRef(null);
+  const [settingsHighlighted, setSettingsHighlighted] = useState(false);
 
   const scheduleTemplates = useMemo(
     () => templates.filter((t) => isScheduleTemplate(t)),
@@ -207,17 +225,21 @@ export default function Schedule() {
     const query = scheduleSearch.trim().toLowerCase();
 
     return schedules.filter((schedule) => {
-      const deptId = schedule.department?._id || schedule.department;
-      if (scheduleDepartment && deptId !== scheduleDepartment) return false;
+      const deptIds = scheduleDepartmentIds(schedule);
+      if (scheduleDepartment && !deptIds.includes(scheduleDepartment)) return false;
       if (!query) return true;
 
-      const haystack = [schedule.name, schedule.department?.name, schedule.notes]
+      const haystack = [
+        schedule.name,
+        scheduleDepartmentsLabel(schedule, departments),
+        schedule.notes,
+      ]
         .join(' ')
         .toLowerCase();
 
       return haystack.includes(query);
     });
-  }, [schedules, scheduleSearch, scheduleDepartment]);
+  }, [schedules, scheduleSearch, scheduleDepartment, departments]);
 
   async function loadList() {
     const [scheduleData, deptData, memberData, templateData, labelData] = await Promise.all([
@@ -237,7 +259,6 @@ export default function Schedule() {
       const templateId = prev.messageTemplateId || defaultTpl?._id || '';
       return {
         ...prev,
-        department: prev.department || deptData[0]?._id || '',
         messageMode: prev.messageMode === 'custom' && !prev.messageTemplateId ? 'custom' : 'template',
         messageTemplateId: templateId ? String(templateId) : '',
         messageBody: prev.messageBody || defaultTpl?.body || '',
@@ -273,14 +294,32 @@ export default function Schedule() {
     }
   }, [id]);
 
-  const deptMembers = useMemo(() => {
-    const deptId = detail?.department?._id || detail?.department || createForm.department;
-    if (!deptId) return members;
-    return members.filter((m) => {
-      if (!m.department) return true;
-      return m.department?._id === deptId || m.department === deptId;
+  useEffect(() => {
+    if (!editingEntryId || !entryFormRef.current) return undefined;
+    const frame = requestAnimationFrame(() => {
+      entryFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      entryFormRef.current.querySelector('input, select, textarea')?.focus({ preventScroll: true });
     });
-  }, [members, detail, createForm.department]);
+    return () => cancelAnimationFrame(frame);
+  }, [editingEntryId]);
+
+  function scrollToSettingsForm() {
+    if (!settingsFormRef.current) return;
+    settingsFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    settingsFormRef.current.querySelector('input, select, textarea')?.focus({ preventScroll: true });
+    setSettingsHighlighted(true);
+    window.setTimeout(() => setSettingsHighlighted(false), 2400);
+  }
+
+  const deptMembers = useMemo(() => {
+    const deptIds = scheduleDepartmentIds(
+      id && detail
+        ? { departments: settingsForm?.departments ?? scheduleDepartmentIds(detail) }
+        : { departments: createForm.departments }
+    );
+    if (!deptIds.length) return members;
+    return members.filter((member) => memberMatchesScheduleDepartments(member, deptIds));
+  }, [members, detail, createForm.departments, settingsForm?.departments, id]);
 
   function buildMessagePayload(form) {
     const messageBody = form.messageBody.trim();
@@ -297,6 +336,15 @@ export default function Schedule() {
     };
   }
 
+  function buildReminderPayload(form) {
+    const reminderDaysBefore = [...(form.reminderDaysBefore || [])];
+    const reminderWeekdays = [...(form.reminderWeekdays || [])];
+    if (!reminderDaysBefore.length && !reminderWeekdays.length) {
+      throw new Error('Select at least one reminder day or weekday');
+    }
+    return { reminderDaysBefore, reminderWeekdays };
+  }
+
   async function onCreateSchedule(e) {
     e.preventDefault();
     setError('');
@@ -305,10 +353,11 @@ export default function Schedule() {
       const channels = buildChannelsPayload(createForm);
       const body = {
         name: createForm.name,
-        department: createForm.department,
+        departments: createForm.departments,
         channels,
         notes: createForm.notes,
         ...buildMessagePayload(createForm),
+        ...buildReminderPayload(createForm),
       };
 
       if (createForm.addFirstPerson && createForm.member && createForm.date) {
@@ -343,10 +392,11 @@ export default function Schedule() {
       const channels = buildChannelsPayload(settingsForm);
       const body = {
         name: settingsForm.name,
-        department: settingsForm.department,
+        departments: settingsForm.departments,
         channels,
         notes: settingsForm.notes,
         ...buildMessagePayload(settingsForm),
+        ...buildReminderPayload(settingsForm),
       };
 
       await api(`/schedules/${id}`, {
@@ -477,9 +527,13 @@ export default function Schedule() {
             </Link>
             <h1>{detail.name}</h1>
             <p className="muted">
-              {detail.department?.name} · {formatChannelsLabel(scheduleChannels(detail))} ·{' '}
-              {scheduleMessageLabel(detail)} · {detail.entries?.length || 0} people
+              {scheduleDepartmentLabel(detail, departments)} · {formatChannelsLabel(scheduleChannels(detail))} ·{' '}
+              {scheduleMessageLabel(detail)} · {formatReminderRulesLabel(detail)} ·{' '}
+              {detail.entries?.length || 0} people
             </p>
+            <button type="button" className="linkish small" onClick={scrollToSettingsForm}>
+              Edit schedule settings
+            </button>
           </div>
           <button type="button" className="btn danger-ghost" onClick={() => removeSchedule(id)}>
             Delete schedule
@@ -490,7 +544,11 @@ export default function Schedule() {
         {error && <p className="error">{error}</p>}
 
         <section className="panel-grid">
-          <form className="panel stack" onSubmit={onSaveSettings}>
+          <form
+            ref={settingsFormRef}
+            className={`panel stack panel-editing-target${settingsHighlighted ? ' panel-editing' : ''}`}
+            onSubmit={onSaveSettings}
+          >
             <h2>Schedule settings</h2>
             <label>
               Name
@@ -500,20 +558,13 @@ export default function Schedule() {
                 required
               />
             </label>
-            <label>
-              Department
-              <select
-                value={settingsForm?.department || ''}
-                onChange={(e) => setSettingsForm({ ...settingsForm, department: e.target.value })}
-                required
-              >
-                {departments.map((d) => (
-                  <option key={d._id} value={d._id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ScheduleDepartmentsPicker
+              departments={departments}
+              selectedIds={settingsForm?.departments || []}
+              onChange={(departmentsSelected) =>
+                setSettingsForm((prev) => ({ ...prev, departments: departmentsSelected }))
+              }
+            />
             <ChannelDropdown
               sendSms={settingsForm?.sendSms ?? false}
               sendWhatsApp={settingsForm?.sendWhatsApp ?? false}
@@ -536,8 +587,16 @@ export default function Schedule() {
               }
               templates={scheduleTemplates}
               scheduleName={settingsForm?.name || ''}
-              departmentName={
-                departments.find((d) => d._id === settingsForm?.department)?.name || ''
+              departmentName={scheduleDepartmentsLabel(
+                { departments: settingsForm?.departments || [] },
+                departments
+              )}
+            />
+            <ScheduleReminderRules
+              reminderDaysBefore={settingsForm?.reminderDaysBefore || []}
+              reminderWeekdays={settingsForm?.reminderWeekdays || []}
+              onChange={({ reminderDaysBefore, reminderWeekdays }) =>
+                setSettingsForm((prev) => ({ ...prev, reminderDaysBefore, reminderWeekdays }))
               }
             />
             <label>
@@ -552,8 +611,15 @@ export default function Schedule() {
             </button>
           </form>
 
-          <form className="panel stack" onSubmit={onAddEntry}>
+          <form
+            ref={entryFormRef}
+            className={`panel stack${editingEntryId ? ' panel-editing' : ''}`}
+            onSubmit={onAddEntry}
+          >
             <h2>{editingEntryId ? 'Edit entry' : 'Add person'}</h2>
+            {editingEntryId && (
+              <p className="muted small">Update the fields below, then save your changes.</p>
+            )}
             <label>
               Person
               <select
@@ -694,7 +760,10 @@ export default function Schedule() {
           <h2>Roster</h2>
           <div className="data-list">
             {(detail.entries || []).map((entry) => (
-              <article className="data-card" key={entry._id}>
+              <article
+                className={`data-card${editingEntryId === entry._id ? ' data-card-editing' : ''}`}
+                key={entry._id}
+              >
                 <div className="data-card-top">
                   <div>
                     <h3>{entry.member?.name}</h3>
@@ -747,7 +816,7 @@ export default function Schedule() {
               </thead>
               <tbody>
                 {(detail.entries || []).map((entry) => (
-                  <tr key={entry._id}>
+                  <tr key={entry._id} className={editingEntryId === entry._id ? 'row-editing' : ''}>
                     <td>{formatDate(entry.date)}</td>
                     <td>{entry.member?.name}</td>
                     <td>{entry.roleLabel}</td>
@@ -807,23 +876,13 @@ export default function Schedule() {
               required
             />
           </label>
-          <label>
-            Department
-            <select
-              value={createForm.department}
-              onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })}
-              required
-            >
-              <option value="" disabled>
-                Select
-              </option>
-              {departments.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ScheduleDepartmentsPicker
+            departments={departments}
+            selectedIds={createForm.departments}
+            onChange={(departmentsSelected) =>
+              setCreateForm((prev) => ({ ...prev, departments: departmentsSelected }))
+            }
+          />
           <ChannelDropdown
             sendSms={createForm.sendSms}
             sendWhatsApp={createForm.sendWhatsApp}
@@ -846,8 +905,16 @@ export default function Schedule() {
             }
             templates={scheduleTemplates}
             scheduleName={createForm.name}
-            departmentName={
-              departments.find((d) => d._id === createForm.department)?.name || ''
+            departmentName={scheduleDepartmentsLabel(
+              { departments: createForm.departments },
+              departments
+            )}
+          />
+          <ScheduleReminderRules
+            reminderDaysBefore={createForm.reminderDaysBefore}
+            reminderWeekdays={createForm.reminderWeekdays}
+            onChange={({ reminderDaysBefore, reminderWeekdays }) =>
+              setCreateForm((prev) => ({ ...prev, reminderDaysBefore, reminderWeekdays }))
             }
           />
           <label>
@@ -877,14 +944,7 @@ export default function Schedule() {
                 >
                   <option value="">Select</option>
                   {members
-                    .filter((m) => {
-                      if (!createForm.department) return true;
-                      if (!m.department) return true;
-                      return (
-                        m.department?._id === createForm.department ||
-                        m.department === createForm.department
-                      );
-                    })
+                    .filter((m) => memberMatchesScheduleDepartments(m, createForm.departments))
                     .map((m) => (
                       <option key={m._id} value={m._id}>
                         {m.name}
@@ -992,7 +1052,7 @@ export default function Schedule() {
                 <Link to={`/schedule/${s._id}`} className="schedule-card">
                   <strong>{s.name}</strong>
                   <span className="muted small">
-                    {s.department?.name} · {formatChannelsLabel(scheduleChannels(s))} ·{' '}
+                    {scheduleDepartmentLabel(s, departments)} · {formatChannelsLabel(scheduleChannels(s))} ·{' '}
                     {s.entryCount || 0} people
                     {s.dateFrom && s.dateTo
                       ? ` · ${formatDate(s.dateFrom)} – ${formatDate(s.dateTo)}`

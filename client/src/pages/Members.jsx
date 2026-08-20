@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import ScheduleDepartmentsPicker from '../components/ScheduleDepartmentsPicker';
+import { memberDepartmentIds, memberDepartmentsLabel } from '../utils/memberDepartments';
 
 const empty = {
   name: '',
   email: '',
   phone: '',
-  department: '',
+  departments: [],
   birthdayMonth: '',
   birthdayDay: '',
   birthdayYear: '',
@@ -109,19 +111,26 @@ export default function Members() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+  const personFormRef = useRef(null);
 
   const visibleMembers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
     if (!query) return members;
 
     return members.filter((m) => {
-      const haystack = [m.name, m.email, m.phone, m.department?.name, m.spouse?.name]
+      const haystack = [
+        m.name,
+        m.email,
+        m.phone,
+        memberDepartmentsLabel(m, departments),
+        m.spouse?.name,
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [members, memberSearch]);
+  }, [members, memberSearch, departments]);
 
   async function load() {
     const [memberData, deptData] = await Promise.all([api('/members'), api('/departments')]);
@@ -132,6 +141,15 @@ export default function Members() {
   useEffect(() => {
     load().catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    if (!editingId || !personFormRef.current) return undefined;
+    const frame = requestAnimationFrame(() => {
+      personFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      personFormRef.current.querySelector('input, select, textarea')?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editingId]);
 
   function resetForm() {
     setEditingId(null);
@@ -144,7 +162,7 @@ export default function Members() {
       name: member.name || '',
       email: member.email || '',
       phone: member.phone || '',
-      department: member.department?._id || member.department || '',
+      departments: memberDepartmentIds(member),
       birthdayMonth: member.birthdayMonth || '',
       birthdayDay: member.birthdayDay || '',
       birthdayYear: member.birthdayYear || '',
@@ -164,7 +182,7 @@ export default function Members() {
     try {
       const body = {
         ...form,
-        department: form.department || null,
+        departments: form.departments,
         spouse: form.spouse || null,
         birthdayMonth: form.birthdayMonth || null,
         birthdayDay: form.birthdayDay || null,
@@ -244,7 +262,7 @@ export default function Members() {
           <form className="panel stack" onSubmit={onUpload}>
             <h2>Bulk upload</h2>
             <p className="muted small">
-              Columns: name, phone, email (optional), department, birthdayMonth, birthdayDay,
+              Columns: name, phone, email (optional), department (comma-separated), birthdayMonth, birthdayDay,
               birthdayYear, spouseEmail, anniversaryMonth, anniversaryDay, anniversaryYear
             </p>
             <label className="file-input">
@@ -260,8 +278,15 @@ export default function Members() {
             </button>
           </form>
 
-          <form className="panel stack" onSubmit={onSubmit}>
+          <form
+            ref={personFormRef}
+            className={`panel stack${editingId ? ' panel-editing' : ''}`}
+            onSubmit={onSubmit}
+          >
             <h2>{editingId ? 'Edit person' : 'Add person'}</h2>
+            {editingId && (
+              <p className="muted small">Update the fields below, then save your changes.</p>
+            )}
             <label>
               Name
               <input
@@ -287,20 +312,16 @@ export default function Members() {
                 required
               />
             </label>
-            <label>
-              Department <span className="muted small">(optional)</span>
-              <select
-                value={form.department}
-                onChange={(e) => setForm({ ...form, department: e.target.value })}
-              >
-                <option value="">No department</option>
-                {departments.map((d) => (
-                  <option key={d._id} value={d._id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ScheduleDepartmentsPicker
+              departments={departments}
+              selectedIds={form.departments}
+              onChange={(departmentsSelected) =>
+                setForm((prev) => ({ ...prev, departments: departmentsSelected }))
+              }
+              hint="Select every team this person belongs to."
+              emptyMessage="No departments yet — add some under Departments first."
+              emptySelectionLabel="No departments"
+            />
 
             <MonthDayYearFields
               legend="Birthday"
@@ -370,7 +391,10 @@ export default function Members() {
 
           <div className="data-list">
             {visibleMembers.map((m) => (
-              <article className="data-card" key={m._id}>
+              <article
+                className={`data-card${editingId === m._id ? ' data-card-editing' : ''}`}
+                key={m._id}
+              >
                 <div className="data-card-top">
                   <div>
                     <h3>{m.name}</h3>
@@ -393,7 +417,7 @@ export default function Members() {
                   </div>
                   <div>
                     <dt>Department</dt>
-                    <dd>{m.department?.name || '—'}</dd>
+                    <dd>{memberDepartmentsLabel(m, departments)}</dd>
                   </div>
                   <div>
                     <dt>Birthday</dt>
@@ -445,13 +469,13 @@ export default function Members() {
               </thead>
               <tbody>
                 {visibleMembers.map((m) => (
-                  <tr key={m._id}>
+                  <tr key={m._id} className={editingId === m._id ? 'row-editing' : ''}>
                     <td>
                       <div className="cell-title">{m.name}</div>
                       {m.email && <div className="muted small">{m.email}</div>}
                     </td>
                     <td>{m.phone || '—'}</td>
-                    <td>{m.department?.name || '—'}</td>
+                    <td>{memberDepartmentsLabel(m, departments)}</td>
                     <td>
                       {formatMonthDayYear(
                         m.birthdayMonth,

@@ -10,6 +10,11 @@ import { protect } from '../middleware/auth.js';
 import { ensureAssignmentLabel } from '../utils/assignmentLabels.js';
 import { findMemberByEmailOrName, normalizeEmail } from '../utils/memberLinks.js';
 import { friendlyErrorMessage } from '../utils/errors.js';
+import { parseReminderRulesInput } from '../utils/reminderRules.js';
+import {
+  getScheduleDepartmentDocs,
+  resolveScheduleDepartments,
+} from '../utils/scheduleDepartments.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
@@ -68,6 +73,30 @@ async function resolveTemplate(messageTemplateId, { messageMode, messageBody } =
   return tpl._id;
 }
 
+async function resolveScheduleDepartmentsFromBody(body, existing) {
+  if (body?.departments !== undefined) {
+    return resolveScheduleDepartments(body.departments);
+  }
+  if (body?.department !== undefined) {
+    return resolveScheduleDepartments(body.department ? [body.department] : []);
+  }
+  return existing?.departments?.length ? existing.departments.map((id) => String(id)) : [];
+}
+
+async function applyScheduleDepartments(schedule, body) {
+  if (body?.departments === undefined && body?.department === undefined) return;
+  schedule.departments = await resolveScheduleDepartmentsFromBody(body, schedule);
+}
+
+async function applyReminderRules(schedule, body, departmentDoc) {
+  const rules = parseReminderRulesInput(body, schedule, departmentDoc);
+  if (!rules.reminderDaysBefore.length && !rules.reminderWeekdays.length) {
+    throw new Error('Select at least one reminder day or weekday');
+  }
+  schedule.reminderDaysBefore = rules.reminderDaysBefore;
+  schedule.reminderWeekdays = rules.reminderWeekdays;
+}
+
 async function createEntry(scheduleId, payload) {
   const parsed = parseDate(payload.date);
   if (!parsed) throw new Error('Invalid date');
@@ -83,13 +112,13 @@ async function createEntry(scheduleId, payload) {
 }
 
 const schedulePopulate = [
-  { path: 'department', select: 'name reminderDaysBefore active' },
+  { path: 'departments', select: 'name active reminderDaysBefore' },
   { path: 'messageTemplate', select: 'name kind key' },
 ];
 
 const entryPopulate = [
   { path: 'member', select: 'name email phone active' },
-  { path: 'schedule', select: 'name', populate: { path: 'department', select: 'name' } },
+  { path: 'schedule', select: 'name', populate: { path: 'departments', select: 'name' } },
 ];
 
 router.get('/', async (_req, res) => {
@@ -117,13 +146,13 @@ router.get('/', async (_req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { name, department, notes, entries = [] } = req.body;
-    if (!name || !department) {
-      return res.status(400).json({ message: 'Name and department are required' });
+    const { name, notes, entries = [] } = req.body;
+    if (!name) {
+      return res.status(400).json({ message: 'Name is required' });
     }
 
-    const dept = await Department.findById(department);
-    if (!dept) return res.status(400).json({ message: 'Department not found' });
+    const departments = await resolveScheduleDepartmentsFromBody(req.body, null);
+    const departmentDoc = departments.length ? await Department.findById(departments[0]) : null;
 
     const channels = normalizeChannels(req.body);
     const messageMode = req.body.messageMode === 'custom' ? 'custom' : 'template';
@@ -134,14 +163,16 @@ router.post('/', async (req, res) => {
         : req.body.messageTemplateId || req.body.smsTemplateId || req.body.whatsappTemplateId;
     const messageTemplate = await resolveTemplate(templateId, { messageMode, messageBody });
 
-    const schedule = await Schedule.create({
+    const schedule = new Schedule({
       name: String(name).trim(),
-      department,
+      departments,
       channels,
       messageTemplate,
       messageBody,
       notes: notes || '',
     });
+    await applyReminderRules(schedule, req.body, departmentDoc);
+    await schedule.save();
 
     for (const entry of entries) {
       if (!entry.member || !entry.date) continue;
@@ -179,10 +210,8 @@ router.put('/:id', async (req, res) => {
     if (req.body.notes != null) schedule.notes = String(req.body.notes).trim();
     if (req.body.active != null) schedule.active = Boolean(req.body.active);
 
-    if (req.body.department) {
-      const dept = await Department.findById(req.body.department);
-      if (!dept) return res.status(400).json({ message: 'Department not found' });
-      schedule.department = req.body.department;
+    if (req.body.departments !== undefined || req.body.department !== undefined) {
+      await applyScheduleDepartments(schedule, req.body);
     }
 
     const channels = normalizeChannels(req.body, schedule);
@@ -206,6 +235,15 @@ router.put('/:id', async (req, res) => {
     } else if (!schedule.messageTemplate && !String(schedule.messageBody || '').trim()) {
       const fallback = await MessageTemplate.findOne({ key: 'schedule_reminder' });
       if (fallback) schedule.messageTemplate = fallback._id;
+    }
+
+    if (
+      req.body.reminderDaysBefore !== undefined ||
+      req.body.reminderWeekdays !== undefined ||
+      !schedule.reminderDaysBefore?.length && !schedule.reminderWeekdays?.length
+    ) {
+      const departmentDoc = getScheduleDepartmentDocs(schedule)[0] || null;
+      await applyReminderRules(schedule, req.body, departmentDoc);
     }
 
     await schedule.save();
@@ -288,7 +326,7 @@ router.delete('/:id/entries/:entryId', async (req, res) => {
 
 router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
   try {
-    const schedule = await Schedule.findById(req.params.id).populate('department');
+    const schedule = await Schedule.findById(req.params.id).populate('departments');
     if (!schedule) return res.status(404).json({ message: 'Schedule not found' });
     if (!req.file) return res.status(400).json({ message: 'CSV file is required' });
 
@@ -338,9 +376,12 @@ router.post('/:id/entries/upload', upload.single('file'), async (req, res) => {
           const phone = String(row.phone || row.Phone || '').trim();
           const memberData = {
             name: memberName,
-            department: schedule.department._id,
             phone,
           };
+          const scheduleDepts = getScheduleDepartmentDocs(schedule);
+          if (scheduleDepts.length) {
+            memberData.departments = scheduleDepts.map((dept) => dept._id);
+          }
           if (memberEmail) memberData.email = memberEmail;
           member = await Member.create(memberData);
           if (!phone && !warnedMemberIds.has(String(member._id))) {

@@ -2,6 +2,19 @@ import ScheduleEntry from '../models/ScheduleEntry.js';
 import ReminderLog from '../models/ReminderLog.js';
 import { sendSms, sendWhatsApp } from './messagingService.js';
 import { getRenderedTemplateById, renderTemplate } from '../utils/messageTemplates.js';
+import {
+  formatReminderRules,
+  getScheduleReminderRules,
+  isReminderDueToday,
+  reminderWindowStart,
+} from '../utils/reminderRules.js';
+import {
+  getScheduleDepartmentDocs,
+} from '../utils/scheduleDepartments.js';
+import {
+  getMemberDepartmentDocs,
+  memberDepartmentsLabel,
+} from '../utils/memberDepartments.js';
 
 function startOfDay(date) {
   const d = new Date(date);
@@ -45,9 +58,40 @@ function templateIdForSchedule(schedule) {
   return schedule.messageTemplate?._id || schedule.messageTemplate;
 }
 
-async function getSentChannels(entryId) {
-  const logs = await ReminderLog.find({ scheduleEntry: entryId, status: 'sent' });
+async function getSentChannelsToday(entryId, referenceDate) {
+  const dayStart = startOfDay(referenceDate);
+  const dayEnd = endOfDay(referenceDate);
+  const logs = await ReminderLog.find({
+    scheduleEntry: entryId,
+    status: 'sent',
+    createdAt: { $gte: dayStart, $lte: dayEnd },
+  });
   return new Set(logs.map((log) => log.channel).filter((c) => c === 'sms' || c === 'whatsapp'));
+}
+
+function scheduleDepartmentName(schedule, member) {
+  const scheduleDepts = getScheduleDepartmentDocs(schedule);
+  const memberDepts = getMemberDepartmentDocs(member);
+
+  if (memberDepts.length && scheduleDepts.length) {
+    const overlap = scheduleDepts.filter((scheduleDept) =>
+      memberDepts.some(
+        (memberDept) => String(memberDept._id || memberDept) === String(scheduleDept._id || scheduleDept)
+      )
+    );
+    if (overlap.length) {
+      return overlap.map((dept) => dept.name).filter(Boolean).join(', ');
+    }
+  }
+
+  const memberLabel = memberDepartmentsLabel(member);
+  if (memberLabel) return memberLabel;
+
+  if (scheduleDepts.length) {
+    return scheduleDepts.map((dept) => dept.name).filter(Boolean).join(', ');
+  }
+
+  return '';
 }
 
 export async function processReminders(referenceDate = new Date()) {
@@ -56,11 +100,15 @@ export async function processReminders(referenceDate = new Date()) {
     reminderSentAt: null,
     date: { $gte: today },
   })
-    .populate('member')
+    .populate({
+      path: 'member',
+      populate: { path: 'departments', select: 'name' },
+    })
     .populate({
       path: 'schedule',
+      select: 'name reminderDaysBefore reminderWeekdays channels active messageBody messageTemplate',
       populate: [
-        { path: 'department', select: 'name reminderDaysBefore active' },
+        { path: 'departments', select: 'name active reminderDaysBefore' },
         { path: 'messageTemplate', select: 'body name' },
       ],
     });
@@ -76,42 +124,51 @@ export async function processReminders(referenceDate = new Date()) {
   for (const entry of entries) {
     const person = entry.member?.name || 'Unknown';
     const schedule = entry.schedule;
-    const dept = schedule?.department?.name || 'Department';
+    const deptLabel = scheduleDepartmentName(schedule, entry.member) || 'Schedule';
     const channels = getScheduleChannels(schedule);
 
-    if (!schedule?.active || !entry.member?.active || !schedule?.department?.active) {
+    if (!schedule?.active || !entry.member?.active) {
       results.skipped += 1;
-      results.reasons.push(`${person}: inactive schedule, member, or department`);
+      results.reasons.push(`${person}: inactive schedule or member`);
       continue;
     }
 
-    const daysBefore = schedule.department.reminderDaysBefore ?? 2;
-    const serviceDay = startOfDay(entry.date);
-    const remindOn = startOfDay(entry.date);
-    remindOn.setDate(remindOn.getDate() - daysBefore);
+    const scheduleDepts = getScheduleDepartmentDocs(schedule);
+    if (scheduleDepts.length && scheduleDepts.every((dept) => !dept.active)) {
+      results.skipped += 1;
+      results.reasons.push(`${person}: inactive department`);
+      continue;
+    }
 
-    if (today.getTime() < remindOn.getTime()) {
+    const rules = getScheduleReminderRules(schedule);
+    const serviceDay = startOfDay(entry.date);
+    const rulesLabel = formatReminderRules(rules);
+
+    if (today.getTime() > serviceDay.getTime()) {
+      if (!entry.reminderSentAt) {
+        entry.reminderSentAt = new Date();
+        await entry.save();
+      }
+      results.skipped += 1;
+      results.reasons.push(`${person} (${deptLabel}): service day already passed`);
+      continue;
+    }
+
+    if (!isReminderDueToday(today, serviceDay, rules)) {
+      const windowStart = reminderWindowStart(serviceDay, rules);
       results.skipped += 1;
       results.reasons.push(
-        `${person} (${dept}): not due yet — reminder sends from ${formatShortDate(remindOn)} (${daysBefore}d before)`
+        `${person} (${deptLabel}): not due today — ${rulesLabel} (from ${formatShortDate(windowStart)})`
       );
       continue;
     }
 
-    if (today.getTime() > serviceDay.getTime()) {
-      results.skipped += 1;
-      results.reasons.push(`${person} (${dept}): service day already passed`);
-      continue;
-    }
-
-    const sentChannels = await getSentChannels(entry._id);
+    const sentChannels = await getSentChannelsToday(entry._id, today);
     const pendingChannels = channels.filter((ch) => !sentChannels.has(ch));
 
     if (!pendingChannels.length) {
-      entry.reminderSentAt = new Date();
-      await entry.save();
       results.skipped += 1;
-      results.reasons.push(`${person}: reminder already sent on all channels`);
+      results.reasons.push(`${person}: reminder already sent today on all channels`);
       continue;
     }
 
@@ -135,7 +192,7 @@ export async function processReminders(referenceDate = new Date()) {
     const templateVars = {
       name: entry.member.name,
       schedule: schedule.name,
-      department: schedule.department.name,
+      department: scheduleDepartmentName(schedule, entry.member),
       date: formatDate(entry.date),
       assignment: entry.roleLabel || 'Serve',
       notes_line: entry.notes ? `Notes: ${entry.notes}.` : '',
@@ -208,10 +265,6 @@ export async function processReminders(referenceDate = new Date()) {
       }
     }
 
-    if (channels.every((ch) => sentChannels.has(ch))) {
-      entry.reminderSentAt = new Date();
-      await entry.save();
-    }
   }
 
   return results;
@@ -225,8 +278,8 @@ export async function getUpcomingAssignments(limit = 20) {
     .populate('member', 'name email phone')
     .populate({
       path: 'schedule',
-      select: 'name',
-      populate: { path: 'department', select: 'name reminderDaysBefore' },
+      select: 'name reminderDaysBefore reminderWeekdays',
+      populate: { path: 'departments', select: 'name reminderDaysBefore' },
     });
 }
 

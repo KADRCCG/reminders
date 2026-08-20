@@ -11,13 +11,17 @@ import {
   syncSpouseLink,
 } from '../utils/memberLinks.js';
 import { friendlyErrorMessage } from '../utils/errors.js';
+import {
+  resolveDepartmentNamesList,
+  resolveMemberDepartments,
+} from '../utils/memberDepartments.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 router.use(protect);
 
 const populateFields = [
-  { path: 'department', select: 'name' },
+  { path: 'departments', select: 'name' },
   {
     path: 'spouse',
     select:
@@ -47,7 +51,7 @@ async function findOrCreateDepartment(name) {
 
 router.get('/', async (req, res) => {
   const filter = {};
-  if (req.query.department) filter.department = req.query.department;
+  if (req.query.department) filter.departments = req.query.department;
   const members = await Member.find(filter).populate(populateFields).sort({ name: 1 });
   res.json(members);
 });
@@ -57,6 +61,10 @@ router.post('/', async (req, res) => {
     const payload = normalizeMemberPayload(req.body);
     if (!payload.name) {
       return res.status(400).json({ message: 'Name is required' });
+    }
+
+    if (payload.departments !== undefined) {
+      payload.departments = await resolveMemberDepartments(payload.departments);
     }
 
     const spouseId = payload.spouse;
@@ -106,21 +114,20 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const name = pick(row, ['name', 'Name']);
         const email = pick(row, ['email', 'Email']).toLowerCase();
         const phone = pick(row, ['phone', 'Phone']);
-        const departmentName = pick(row, ['department', 'Department']);
-        const spouseEmail = pick(row, ['spouseEmail', 'SpouseEmail', 'spouse', 'Spouse']).toLowerCase();
+        const departmentName = pick(row, ['department', 'Department', 'departments', 'Departments']);
 
         if (!name) {
           errors.push(`Row ${line}: name is required`);
           continue;
         }
 
-        const department = await findOrCreateDepartment(departmentName);
+        const departmentIds = await resolveDepartmentNamesList(departmentName, findOrCreateDepartment);
 
         const payload = normalizeMemberPayload({
           name,
           email,
           phone,
-          department: department?._id || null,
+          departments: departmentIds,
           birthdayMonth: pick(row, ['birthdayMonth', 'BirthdayMonth']),
           birthdayDay: pick(row, ['birthdayDay', 'BirthdayDay']),
           birthdayYear: pick(row, ['birthdayYear', 'BirthdayYear']),
@@ -131,13 +138,17 @@ router.post('/upload', upload.single('file'), async (req, res) => {
           weddingAnniversary: pick(row, ['anniversary', 'Anniversary', 'weddingAnniversary']),
         });
 
+        const spouseEmail = pick(row, ['spouseEmail', 'SpouseEmail', 'spouse', 'Spouse']).toLowerCase();
+
         let member = await findMemberByEmailOrName(email, name);
         if (member) {
           const previousSpouseId = member.spouse;
           member.name = payload.name;
           if (payload.email) member.email = payload.email;
           member.phone = payload.phone;
-          member.department = payload.department;
+          if (payload.departments !== undefined) {
+            member.departments = await resolveMemberDepartments(payload.departments);
+          }
           member.birthdayMonth = payload.birthdayMonth;
           member.birthdayDay = payload.birthdayDay;
           member.birthdayYear = payload.birthdayYear;
@@ -239,7 +250,9 @@ router.put('/:id', async (req, res) => {
     existing.name = payload.name ?? existing.name;
     existing.email = payload.email ?? existing.email;
     existing.phone = payload.phone ?? existing.phone;
-    existing.department = payload.department;
+    if (payload.departments !== undefined) {
+      existing.departments = await resolveMemberDepartments(payload.departments);
+    }
     existing.birthdayMonth = payload.birthdayMonth;
     existing.birthdayDay = payload.birthdayDay;
     existing.birthdayYear = payload.birthdayYear;

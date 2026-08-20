@@ -24,6 +24,8 @@ import { backfillAssignmentLabels } from './utils/assignmentLabels.js';
 import { ensureAdminFromEnv } from './utils/ensureAdmin.js';
 import { ensureMessageTemplates, migrateUnifiedTemplates, syncSystemTemplateDescriptions } from './utils/messageTemplates.js';
 import { migrateAssignmentsToSchedules } from './utils/migrateSchedules.js';
+import { migrateLegacyScheduleDepartments } from './utils/scheduleDepartments.js';
+import { migrateLegacyMemberDepartments } from './utils/memberDepartments.js';
 import { ensureMemberEmailIndex } from './utils/memberIndexes.js';
 
 const app = express();
@@ -119,6 +121,16 @@ async function start() {
     }
   } catch (err) {
     console.error('[startup] Assignment migration failed (server will still start):', err.message);
+  }
+  try {
+    await migrateLegacyScheduleDepartments();
+  } catch (err) {
+    console.error('[startup] Schedule departments migration failed (server will still start):', err.message);
+  }
+  try {
+    await migrateLegacyMemberDepartments();
+  } catch (err) {
+    console.error('[startup] Member departments migration failed (server will still start):', err.message);
   }
   await backfillAssignmentLabels();
   await runStartupCatchUp();

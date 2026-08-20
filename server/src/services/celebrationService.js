@@ -74,7 +74,7 @@ export async function getTodaysCelebrations(referenceDate = new Date()) {
   const { month, day } = monthDay(referenceDate);
   const members = await Member.find({ active: true })
     .populate('spouse', 'name email phone')
-    .populate('department', 'name')
+    .populate('departments', 'name')
     .sort({ name: 1 });
 
   const birthdays = members
@@ -118,7 +118,7 @@ export async function getTodaysCelebrations(referenceDate = new Date()) {
 export async function getUpcomingCelebrations(days = 14, referenceDate = new Date()) {
   const members = await Member.find({ active: true })
     .populate('spouse', 'name email phone')
-    .populate('department', 'name')
+    .populate('departments', 'name')
     .sort({ name: 1 });
 
   const upcoming = [];

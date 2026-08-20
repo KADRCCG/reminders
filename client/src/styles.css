@@ -1034,6 +1034,159 @@ button.btn {
   width: auto;
 }
 
+.schedule-departments {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.schedule-departments legend {
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 0.15rem;
+}
+
+.panel-editing {
+  outline: 2px solid rgba(0, 166, 81, 0.35);
+  border-color: var(--rccg-green, #00a651);
+  box-shadow: 0 0 0 4px rgba(0, 166, 81, 0.08);
+}
+
+.data-card-editing {
+  border-color: var(--rccg-green, #00a651);
+  background: rgba(0, 166, 81, 0.05);
+}
+
+tr.row-editing td {
+  background: rgba(0, 166, 81, 0.06);
+}
+
+.departments-dropdown-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.departments-dropdown-hint {
+  margin: 0;
+}
+
+.departments-dropdown-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.departments-dropdown-search input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: #fffdf8;
+}
+
+.departments-dropdown-options {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.departments-dropdown-options .channel-dropdown-option {
+  margin: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.reminder-dropdown-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.reminder-dropdown-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.reminder-dropdown-error {
+  margin: 0;
+}
+
+.reminder-rules-group {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reminder-rules-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.reminder-rules-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.reminder-rules-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: #fffdf8;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.reminder-rules-option:hover {
+  border-color: var(--green, #1b7a4e);
+}
+
+.reminder-rules-option input {
+  width: auto;
+  margin: 0;
+  min-height: auto;
+  padding: 0;
+}
+
 .schedule-message-editor textarea {
   min-height: 10rem;
   resize: vertical;

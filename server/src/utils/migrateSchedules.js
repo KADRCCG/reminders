@@ -45,7 +45,7 @@ export async function migrateAssignmentsToSchedules() {
 
     const schedule = await Schedule.create({
       name: `Migrated — ${dept?.name || 'Department'}`,
-      department: deptId,
+      departments: [deptId],
       messageTemplate: defaultTemplate._id,
       notes: 'Auto-migrated from legacy assignments',
     });

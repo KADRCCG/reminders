@@ -62,7 +62,7 @@ async function seed() {
     name: 'Ada Okonkwo',
     email: 'ada@example.com',
     phone: '08030000001',
-    department: sundaySchool._id,
+    departments: [sundaySchool._id],
     birthdayMonth: today.getMonth() + 1,
     birthdayDay: today.getDate(),
     birthdayYear: null,
@@ -72,7 +72,7 @@ async function seed() {
     name: 'Chidi Nwosu',
     email: 'chidi@example.com',
     phone: '08030000002',
-    department: sundaySchool._id,
+    departments: [sundaySchool._id],
     birthdayMonth: 3,
     birthdayDay: 12,
     birthdayYear: 1990,
@@ -82,7 +82,7 @@ async function seed() {
     name: 'Grace Bello',
     email: 'grace@example.com',
     phone: '08030000003',
-    department: ushers._id,
+    departments: [ushers._id],
     birthdayMonth: 11,
     birthdayDay: 2,
     birthdayYear: null,
@@ -92,7 +92,7 @@ async function seed() {
     name: 'Samuel Ade',
     email: 'samuel@example.com',
     phone: '08030000004',
-    department: choir._id,
+    departments: [choir._id],
     birthdayMonth: 7,
     birthdayDay: 19,
     birthdayYear: 1988,
@@ -123,20 +123,20 @@ async function seed() {
 
   const ssSchedule = await Schedule.create({
     name: 'Q3 Sunday School',
-    department: sundaySchool._id,
+    departments: [sundaySchool._id],
     messageTemplate: defaultTemplate._id,
     notes: 'Quarterly teacher roster',
   });
 
   const usherSchedule = await Schedule.create({
     name: 'August Ushers',
-    department: ushers._id,
+    departments: [ushers._id],
     messageTemplate: defaultTemplate._id,
   });
 
   const choirSchedule = await Schedule.create({
     name: 'August Choir',
-    department: choir._id,
+    departments: [choir._id],
     messageTemplate: defaultTemplate._id,
   });
 

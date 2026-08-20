@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { formatReminderRulesLabel } from '../utils/reminderRules';
+import { scheduleDepartmentsLabel } from '../utils/scheduleDepartments';
 
 function formatDate(value) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -7,6 +9,11 @@ function formatDate(value) {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function reminderLabel(item) {
+  if (item.reminderSentAt) return 'Sent';
+  return formatReminderRulesLabel(item.schedule);
 }
 
 export default function Dashboard() {
@@ -77,7 +84,8 @@ export default function Dashboard() {
         <div>
           <h1>Overview</h1>
           <p className="muted">
-            SMS reminders send from each department&apos;s “days before” date through the service day.
+            SMS reminders follow each schedule&apos;s reminder rules from the first matching day through
+            the service date.
           </p>
         </div>
         <button type="button" className="btn primary" onClick={runReminders} disabled={running}>
@@ -138,9 +146,7 @@ export default function Dashboard() {
                     <p className="muted small">{formatDate(item.date)}</p>
                   </div>
                   <span className={`pill ${item.reminderSentAt ? 'ok' : 'warn'}`}>
-                    {item.reminderSentAt
-                      ? 'Sent'
-                      : `${item.schedule?.department?.reminderDaysBefore ?? 2}d before`}
+                    {reminderLabel(item)}
                   </span>
                 </div>
                 <dl className="meta-grid">
@@ -150,7 +156,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <dt>Department</dt>
-                    <dd>{item.schedule?.department?.name || '—'}</dd>
+                    <dd>{scheduleDepartmentsLabel(item.schedule) || '—'}</dd>
                   </div>
                   <div>
                     <dt>Assignment</dt>
@@ -181,14 +187,12 @@ export default function Dashboard() {
                   <tr key={item._id}>
                     <td>{formatDate(item.date)}</td>
                     <td>{item.schedule?.name}</td>
-                    <td>{item.schedule?.department?.name}</td>
+                    <td>{scheduleDepartmentsLabel(item.schedule) || '—'}</td>
                     <td>{item.member?.name}</td>
                     <td>{item.roleLabel}</td>
                     <td>
                       <span className={`pill ${item.reminderSentAt ? 'ok' : 'warn'}`}>
-                        {item.reminderSentAt
-                          ? 'Sent'
-                          : `${item.schedule?.department?.reminderDaysBefore ?? 2}d before`}
+                        {reminderLabel(item)}
                       </span>
                     </td>
                   </tr>
@@ -210,13 +214,17 @@ export default function Dashboard() {
           <ul className="log-list">
             {(data?.recentLogs || []).map((log) => (
               <li key={log._id}>
-                <strong>{log.member?.name}</strong>
+                <strong>{log.member?.name || 'Unknown'}</strong>
                 <span>
-                  {log.scheduleEntry?.schedule?.name || log.scheduleEntry?.schedule?.department?.name || 'Schedule'} · {log.status} via {log.channel}
+                  {log.status}
+                  {log.scheduleEntry?.schedule?.name ? ` · ${log.scheduleEntry.schedule.name}` : ''}
+                  {log.createdAt ? ` · ${formatDate(log.createdAt)}` : ''}
                 </span>
               </li>
             ))}
-            {!data?.recentLogs?.length && <li className="muted">No reminders sent yet.</li>}
+            {!data?.recentLogs?.length && (
+              <li className="muted">No reminders sent yet.</li>
+            )}
           </ul>
         </div>
       </section>

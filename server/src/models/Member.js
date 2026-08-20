@@ -5,10 +5,9 @@ const memberSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, lowercase: true, trim: true },
     phone: { type: String, default: '', trim: true },
-    department: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      default: null,
+    departments: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Department' }],
+      default: () => [],
     },
     birthdayMonth: { type: Number, min: 1, max: 12, default: null },
     birthdayDay: { type: Number, min: 1, max: 31, default: null },

@@ -1,6 +1,7 @@
 import Member from '../models/Member.js';
 import { parseAnniversaryPayload, pickAnniversaryFields } from './anniversary.js';
 import { parseBirthdayPayload } from './birthday.js';
+import { parseDepartmentsFromBody } from './memberDepartments.js';
 
 function emptyToNull(value) {
   if (value === '' || value === undefined) return null;
@@ -33,16 +34,22 @@ export async function findMemberByEmailOrName(email, name) {
 export function normalizeMemberPayload(body) {
   const birthday = parseBirthdayPayload(body);
   const anniversary = parseAnniversaryPayload(body);
-  return {
+  const departments = parseDepartmentsFromBody(body);
+  const payload = {
     name: body.name,
     email: normalizeEmail(body.email),
     phone: body.phone ?? '',
-    department: emptyToNull(body.department),
     ...birthday,
     ...anniversary,
     spouse: emptyToNull(body.spouse),
     active: body.active,
   };
+
+  if (departments !== undefined) {
+    payload.departments = departments;
+  }
+
+  return payload;
 }
 
 export async function syncSpouseLink(member, previousSpouseId = null) {
