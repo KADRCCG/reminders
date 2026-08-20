@@ -55,7 +55,7 @@ export default function ScheduleDepartmentsPicker({
     : emptySelectionLabel;
 
   return (
-    <div className="departments-dropdown-wrap" ref={wrapRef}>
+    <div className={`form-dropdown-wrap departments-dropdown-wrap${open ? ' is-open' : ''}`} ref={wrapRef}>
       <span className="channel-dropdown-label">
         {label}
         {optional && <span className="muted small"> (optional)</span>}
@@ -71,7 +71,7 @@ export default function ScheduleDepartmentsPicker({
         {summary}
       </button>
       {open && (
-        <div className="departments-dropdown-menu" role="listbox">
+        <div className="form-dropdown-menu departments-dropdown-menu" role="listbox">
           <label className="departments-dropdown-search">
             <span className="sr-only">Search departments</span>
             <input

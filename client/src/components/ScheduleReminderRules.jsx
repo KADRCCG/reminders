@@ -59,7 +59,7 @@ export default function ScheduleReminderRules({ reminderDaysBefore, reminderWeek
   const hasSelection = days.length || weekdays.length;
 
   return (
-    <div className="reminder-dropdown-wrap" ref={wrapRef}>
+    <div className={`form-dropdown-wrap reminder-dropdown-wrap${open ? ' is-open' : ''}`} ref={wrapRef}>
       <span className="channel-dropdown-label">Reminder schedule</span>
       <button
         type="button"
@@ -71,7 +71,7 @@ export default function ScheduleReminderRules({ reminderDaysBefore, reminderWeek
         {hasSelection ? summary : 'Select reminder days'}
       </button>
       {open && (
-        <div className="reminder-dropdown-menu" role="listbox">
+        <div className="form-dropdown-menu reminder-dropdown-menu" role="listbox">
           <div className="reminder-rules-group">
             <span className="reminder-rules-label">Days before service</span>
             <div className="reminder-rules-options">
