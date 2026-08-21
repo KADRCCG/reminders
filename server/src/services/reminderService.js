@@ -3,10 +3,8 @@ import ReminderLog from '../models/ReminderLog.js';
 import { sendSms, sendWhatsApp } from './messagingService.js';
 import { getRenderedTemplateById, renderTemplate } from '../utils/messageTemplates.js';
 import {
-  formatReminderRules,
   getScheduleReminderRules,
   isReminderDueToday,
-  reminderWindowStart,
 } from '../utils/reminderRules.js';
 import {
   getScheduleDepartmentDocs,
@@ -33,14 +31,6 @@ function formatDate(date) {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric',
-  });
-}
-
-function formatShortDate(date) {
-  return new Date(date).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
     day: 'numeric',
   });
 }
@@ -118,6 +108,7 @@ export async function processReminders(referenceDate = new Date()) {
     sent: 0,
     failed: 0,
     skipped: 0,
+    notDueToday: 0,
     reasons: [],
   };
 
@@ -142,7 +133,6 @@ export async function processReminders(referenceDate = new Date()) {
 
     const rules = getScheduleReminderRules(schedule);
     const serviceDay = startOfDay(entry.date);
-    const rulesLabel = formatReminderRules(rules);
 
     if (today.getTime() > serviceDay.getTime()) {
       if (!entry.reminderSentAt) {
@@ -155,11 +145,8 @@ export async function processReminders(referenceDate = new Date()) {
     }
 
     if (!isReminderDueToday(today, serviceDay, rules)) {
-      const windowStart = reminderWindowStart(serviceDay, rules);
       results.skipped += 1;
-      results.reasons.push(
-        `${person} (${deptLabel}): not due today — ${rulesLabel} (from ${formatShortDate(windowStart)})`
-      );
+      results.notDueToday += 1;
       continue;
     }
 
@@ -265,6 +252,12 @@ export async function processReminders(referenceDate = new Date()) {
       }
     }
 
+  }
+
+  if (results.notDueToday > 0) {
+    results.reasons.unshift(
+      `${results.notDueToday} assignment${results.notDueToday === 1 ? '' : 's'} not due today`
+    );
   }
 
   return results;
